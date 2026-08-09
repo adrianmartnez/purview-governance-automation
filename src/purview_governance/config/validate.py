@@ -125,15 +125,21 @@ def _map_validation_error(error: ValidationError) -> list[ConfigDiagnostic]:
             )
         ]
 
-    if validator == "maxItems" and list(error.absolute_path) == ["resources"]:
+    if validator == "const" and list(error.absolute_path)[-1:] == ["kind"]:
         return [
             ConfigDiagnostic(
-                code="config.resources_not_supported",
-                path=path or json_pointer("resources"),
-                message=(
-                    "resources are not supported in purview-governance-config/v1 yet; "
-                    "use an empty array"
-                ),
+                code="config.unsupported_data_source_kind",
+                path=path,
+                message="unsupported Data Source kind; v1 supports only AzureStorage",
+            )
+        ]
+
+    if validator == "const" and list(error.absolute_path)[-1:] == ["type"]:
+        return [
+            ConfigDiagnostic(
+                code="config.unknown_field",
+                path=path,
+                message="unsupported resource type; v1 supports only type dataSource",
             )
         ]
 
@@ -207,7 +213,39 @@ def validate_document(document: dict[str, Any]) -> dict[str, Any]:
         else:
             diagnostics.extend(_map_validation_error(error))
 
+    diagnostics.extend(_duplicate_data_source_name_diagnostics(document))
     diagnostics = _dedupe_diagnostics(diagnostics)
     if diagnostics:
         raise ConfigValidationError(diagnostics)
     return document
+
+
+def _duplicate_data_source_name_diagnostics(
+    document: dict[str, Any],
+) -> list[ConfigDiagnostic]:
+    """Reject duplicate desired Data Source names (no last-wins / silent dedupe)."""
+    resources = document.get("resources")
+    if not isinstance(resources, list):
+        return []
+    seen: dict[str, int] = {}
+    diagnostics: list[ConfigDiagnostic] = []
+    for index, item in enumerate(resources):
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str):
+            continue
+        if name in seen:
+            diagnostics.append(
+                ConfigDiagnostic(
+                    code="config.duplicate_data_source_name",
+                    path=json_pointer("resources", index, "name"),
+                    message=(
+                        f"duplicate Data Source name {name!r}; "
+                        f"first seen at /resources/{seen[name]}/name"
+                    ),
+                )
+            )
+        else:
+            seen[name] = index
+    return diagnostics

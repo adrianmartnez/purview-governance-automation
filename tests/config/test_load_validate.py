@@ -80,12 +80,98 @@ def test_unknown_nested_field() -> None:
     assert diag.code == "config.unknown_field"
 
 
-def test_resources_non_empty_rejected() -> None:
-    text = VALID_JSON.replace('"resources": []', '"resources": [{"kind": "x"}]')
+def test_supported_data_source_resource_accepted() -> None:
+    text = VALID_JSON.replace(
+        '"resources": []',
+        """
+        "resources": [{
+          "type": "dataSource",
+          "name": "example-azure-storage",
+          "kind": "AzureStorage",
+          "properties": {
+            "endpoint": "https://azurestorage.core.windows.net/",
+            "collection": {"referenceName": "Collection-rZX"}
+          }
+        }]
+        """,
+    )
+    config = validate_config_text(text, format_hint="json")
+    assert len(config.resources) == 1
+    assert config.resources[0].name == "example-azure-storage"
+
+
+def test_unsupported_data_source_kind_rejected() -> None:
+    text = VALID_JSON.replace(
+        '"resources": []',
+        """
+        "resources": [{
+          "type": "dataSource",
+          "name": "example-azure-storage",
+          "kind": "AdlsGen2",
+          "properties": {
+            "endpoint": "https://datalake.dfs.core.windows.net/",
+            "collection": {"referenceName": "root"}
+          }
+        }]
+        """,
+    )
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config_text(text, format_hint="json")
     codes = {d.code for d in exc_info.value.diagnostics}
-    assert "config.resources_not_supported" in codes
+    assert "config.unsupported_data_source_kind" in codes
+
+
+def test_duplicate_data_source_names_rejected() -> None:
+    text = VALID_JSON.replace(
+        '"resources": []',
+        """
+        "resources": [
+          {
+            "type": "dataSource",
+            "name": "example-azure-storage",
+            "kind": "AzureStorage",
+            "properties": {
+              "endpoint": "https://a.blob.core.windows.net/",
+              "collection": {"referenceName": "root"}
+            }
+          },
+          {
+            "type": "dataSource",
+            "name": "example-azure-storage",
+            "kind": "AzureStorage",
+            "properties": {
+              "endpoint": "https://b.blob.core.windows.net/",
+              "collection": {"referenceName": "root"}
+            }
+          }
+        ]
+        """,
+    )
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config_text(text, format_hint="json")
+    codes = {d.code for d in exc_info.value.diagnostics}
+    assert "config.duplicate_data_source_name" in codes
+
+
+def test_unknown_resource_field_rejected() -> None:
+    text = VALID_JSON.replace(
+        '"resources": []',
+        """
+        "resources": [{
+          "type": "dataSource",
+          "name": "example-azure-storage",
+          "kind": "AzureStorage",
+          "properties": {
+            "endpoint": "https://azurestorage.core.windows.net/",
+            "collection": {"referenceName": "Collection-rZX"}
+          },
+          "extra": true
+        }]
+        """,
+    )
+    with pytest.raises(ConfigValidationError) as exc_info:
+        validate_config_text(text, format_hint="json")
+    assert any(d.code == "config.unknown_field" for d in exc_info.value.diagnostics)
 
 
 def test_invalid_endpoint_scheme() -> None:

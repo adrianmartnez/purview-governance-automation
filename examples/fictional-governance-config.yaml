@@ -1,9 +1,17 @@
 # Fictional sample — not a live Microsoft Purview account.
 # Example only: validates against purview-governance-config/v1.
-# No resource kinds are declared yet; resources must be an empty array.
+# Desired Data Source shape follows the official Create Or Replace REQUEST sample
+# for AzureStorage (Scanning Data Plane 2023-09-01), not the inconsistent response.
 apiVersion: purview-governance-config/v1
 target:
   endpoint: https://contoso-fictional.purview.azure.com
 authentication:
   strategy: defaultAzureCredential
-resources: []
+resources:
+  - type: dataSource
+    name: example-azure-storage
+    kind: AzureStorage
+    properties:
+      endpoint: https://azurestorage.core.windows.net/
+      collection:
+        referenceName: Collection-rZX

@@ -13,10 +13,11 @@ Implemented:
 - minimal `purview-governance` CLI foundation (`--help`, `--version`)
 - CI and offline test infrastructure (lint, unit tests, package validation,
   offline API contract tests, CLI integration against an installed wheel)
-- versioned governance configuration contract `purview-governance-config/v1` (#8):
-  packaged JSON Schema, offline YAML/JSON parsing/validation/normalization,
-  stable diagnostics, and a `config validate` application service (not yet exposed
-  as a public CLI subcommand)
+- versioned governance configuration contract `purview-governance-config/v1` (#8),
+  including additive desired Data Source resources for the AzureStorage vertical
+  slice (`type: dataSource`): packaged JSON Schema, offline YAML/JSON
+  parsing/validation/normalization, stable diagnostics, and a `config validate`
+  application service (not yet exposed as a public CLI subcommand)
 - Microsoft Entra authentication boundary (#9): `TokenCredential`-based provider,
   centralized Purview OAuth scope, sanitized auth errors, and a convenient
   `DefaultAzureCredential` factory (replaceable; offline/fake tests only by default)
@@ -28,14 +29,18 @@ Implemented:
   Authorization values, and the `api-contract-tests` CI lane
 - read-only Purview Data Source remote-state inspection (#12): List+Get capture,
   AzureStorage vertical-slice normalization, packaged `purview-remote-state/v1`
-  schema, canonical JSON, stable `materialStateIdentity`, and project safety
-  validation for material Data Source endpoints (HTTPS; no userinfo/query/fragment)
+  schema, canonical JSON, and stable `materialStateIdentity` (observed-state
+  safety/identity; offline/fake and loopback contract tests only)
+- deterministic Data Source desired-state diff (#13): create / replace / no-op /
+  remote-only / blocked outcomes with property-level reasons; read-only; no delete
 
 Not implemented yet:
 
-- desired-state diff, plan, and apply workflows (#13–#15)
+- governance plan artifacts (#14)
+- safe explicit apply (#15)
 - complete v1.0 CLI workflows and documentation (#16)
 - stable `v1.0.0` release (#17)
+- Data Source kinds beyond the AzureStorage vertical slice
 - scans, scan rule sets, and classifications (v1.1)
 - validation against a live Microsoft Purview environment
 
@@ -58,15 +63,21 @@ the package SemVer.
   duplicate-key rejection.
 - Unknown fields fail closed. Credential material field names are rejected with
   `config.secret_field_forbidden`.
-- `resources` must be an empty array in v1 (no resource kinds are supported yet).
+- `resources` may be empty (documents with `resources: []` remain valid) or contain
+  closed `type: dataSource` items with `kind: AzureStorage` and material desired
+  fields only (`name`, `properties.endpoint`, `properties.collection.referenceName`).
+- Duplicate desired Data Source names fail closed.
 - Sample (fictional values only): `examples/fictional-governance-config.yaml`.
 
 Application helpers:
 
 ```python
 from purview_governance.config import validate_config_file
+from purview_governance.desired import desired_state_from_config
+from purview_governance.diff import diff_desired_vs_remote
 
 config = validate_config_file("examples/fictional-governance-config.yaml")
+desired = desired_state_from_config(config)
 ```
 
 ## Microsoft Entra authentication
@@ -107,14 +118,17 @@ Default unit tests use fake credentials and injected/mocked HTTP transports.
 Contract tests use a deterministic loopback HTTP server with fictional fixtures.
 Neither lane contacts a live Microsoft Purview account.
 
-## Remote state
+## Remote state and desired-state diff
 
 `capture_remote_state` discovers Data Sources via `list_data_sources`, then reads
 each authoritative body with `get_data_source` (List+Get). It normalizes only the
 AzureStorage vertical slice, accounts for unsupported kinds, and emits
 `purview-remote-state/v1` with a non-self-referential `materialStateIdentity`.
-Material Data Source endpoints are validated with a project safety policy (HTTPS;
-no userinfo, query, or fragment) so credential-bearing URLs cannot enter artifacts.
+
+`diff_desired_vs_remote` is a pure offline comparison. Outcomes are `create`,
+`replace`, `no-op`, `remote-only`, and `blocked`. There is no `delete` outcome.
+Remote-only means unmanaged visibility; omission from desired does not imply
+ownership or deletion. Diff does not authorize or execute writes.
 
 ## Development
 
