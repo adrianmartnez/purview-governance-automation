@@ -1,11 +1,4 @@
-"""Contract-lane harness readiness tests.
-
-These tests prove the offline api-contract-tests lane can start a deterministic
-local HTTP fixture, round-trip a fixed response, and tear down cleanly.
-
-They do not validate Microsoft Purview Scanning Data Plane contracts. The
-Purview-specific mock/contract server belongs to issue #11.
-"""
+"""Contract-lane readiness: local HTTP fixture starts, answers, and tears down."""
 
 from __future__ import annotations
 
@@ -26,3 +19,4 @@ def test_local_harness_health_round_trip() -> None:
         assert response.status == 200
         payload = json.loads(response.read().decode("utf-8"))
     assert payload == HEALTH_PAYLOAD
+    assert harness.host == "127.0.0.1"
