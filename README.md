@@ -17,10 +17,12 @@ Implemented:
   packaged JSON Schema, offline YAML/JSON parsing/validation/normalization,
   stable diagnostics, and a `config validate` application service (not yet exposed
   as a public CLI subcommand)
+- Microsoft Entra authentication boundary (#9): `TokenCredential`-based provider,
+  centralized Purview OAuth scope, sanitized auth errors, and a convenient
+  `DefaultAzureCredential` factory (replaceable; offline/fake tests only by default)
 
 Not implemented yet:
 
-- Microsoft Entra authentication (#9)
 - Purview Scanning Data Plane client (#10)
 - Purview-specific API contract-test server (#11)
 - remote state, diff, plan, and apply workflows (#12–#15)
@@ -43,7 +45,7 @@ the package SemVer.
 - Duplicate object/mapping keys are rejected (`config.duplicate_key`); last-value-wins
   is never applied.
 - YAML uses SafeLoader semantics via a strict `SafeLoader` subclass that only adds
-  duplicate-key rejection and string-key enforcement.
+  duplicate-key rejection.
 - Unknown fields fail closed. Credential material field names are rejected with
   `config.secret_field_forbidden`.
 - `resources` must be an empty array in v1 (no resource kinds are supported yet).
@@ -56,6 +58,30 @@ from purview_governance.config import validate_config_file
 
 config = validate_config_file("examples/fictional-governance-config.yaml")
 ```
+
+## Microsoft Entra authentication
+
+The integration boundary accepts any `azure.core.credentials.TokenCredential` and
+centralizes the Purview scope `https://purview.azure.net/.default`.
+
+`create_default_azure_credential_provider()` builds a provider with
+`DefaultAzureCredential` as a convenient supported factory. Callers may inject a
+more specific credential instead. This has not been validated against a live
+Microsoft Purview environment.
+
+For non-interactive automation, Azure Identity environment conventions apply when
+using the default factory, for example:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_CLIENT_SECRET`
+
+(or managed identity / other credential chain members supported by Azure Identity).
+Do not put secrets in governance configuration files.
+
+This project does not enable detailed Azure Identity credential logging. Consumers
+should not enable sensitive credential logging in environments where logs are not
+adequately protected.
 
 ## Development
 

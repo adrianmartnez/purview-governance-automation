@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "purview-governance-automation"
 dynamic = ["version"]
-description = "Microsoft Purview governance automation: versioned config contract and installable Python package. Purview API clients are not implemented yet."
+description = "Microsoft Purview governance automation: versioned config contract and Microsoft Entra auth boundary. Purview API clients are not implemented yet."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -14,6 +14,8 @@ authors = [{ name = "fgnfmackk" }]
 dependencies = [
     "PyYAML>=6.0.1",
     "jsonschema>=4.22",
+    "azure-identity>=1.19.0",
+    "azure-core>=1.31.0",
 ]
 
 [project.optional-dependencies]
