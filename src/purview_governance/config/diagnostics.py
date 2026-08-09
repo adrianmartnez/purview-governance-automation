@@ -5,22 +5,16 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-SECRET_FIELD_NAMES: frozenset[str] = frozenset(
-    {
-        "clientSecret",
-        "client_secret",
-        "password",
-        "token",
-        "accessToken",
-        "access_token",
-        "bearerToken",
-        "bearer_token",
-        "privateKey",
-        "private_key",
-        "connectionString",
-        "connection_string",
-    }
-)
+from purview_governance.sensitive import SECRET_FIELD_NAMES
+
+# Re-export for existing imports.
+__all__ = [
+    "SECRET_FIELD_NAMES",
+    "ConfigDiagnostic",
+    "ConfigValidationError",
+    "classify_unknown_field",
+    "json_pointer",
+]
 
 
 @dataclass(frozen=True, slots=True)

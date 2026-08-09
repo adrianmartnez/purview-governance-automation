@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "purview-governance-automation"
 dynamic = ["version"]
-description = "Microsoft Purview governance automation: versioned config contract, Microsoft Entra auth boundary, and Scanning Data Plane client foundation (2023-09-01)."
+description = "Microsoft Purview governance automation: versioned config contract, Microsoft Entra auth boundary, Scanning Data Plane client (2023-09-01), read-only remote-state, and desired-state diff."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -33,7 +33,7 @@ purview-governance = "purview_governance.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-purview_governance = ["config/schemas/*.json"]
+purview_governance = ["config/schemas/*.json", "remote_state/schemas/*.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "purview_governance.__version__" }

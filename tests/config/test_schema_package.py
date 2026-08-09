@@ -28,4 +28,8 @@ def test_sample_config_validates() -> None:
     assert config.api_version == "purview-governance-config/v1"
     assert config.target.endpoint == "https://contoso-fictional.purview.azure.com"
     assert config.authentication.strategy == "defaultAzureCredential"
-    assert config.resources == ()
+    assert len(config.resources) == 1
+    assert config.resources[0].name == "example-azure-storage"
+    assert config.resources[0].kind == "AzureStorage"
+    assert config.resources[0].endpoint == "https://azurestorage.core.windows.net/"
+    assert config.resources[0].collection_reference_name == "Collection-rZX"

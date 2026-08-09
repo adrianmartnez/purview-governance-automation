@@ -32,7 +32,48 @@
     },
     "resources": {
       "type": "array",
-      "maxItems": 0
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "name", "kind", "properties"],
+        "properties": {
+          "type": {
+            "const": "dataSource"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": {
+            "const": "AzureStorage"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["endpoint", "collection"],
+            "properties": {
+              "endpoint": {
+                "type": "string",
+                "minLength": 1
+              },
+              "collection": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["referenceName"],
+                "properties": {
+                  "referenceName": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

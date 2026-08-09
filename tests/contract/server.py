@@ -22,6 +22,47 @@ HEALTH_PATH = "/health"
 HEALTH_PAYLOAD = {"status": "ok", "lane": "api-contract-tests"}
 
 
+def azure_storage_fixture(
+    name: str,
+    *,
+    creation_type: str = "Manual",
+    moving_state: str | dict[str, str] = "Active",
+    endpoint: str = "https://example.blob.core.windows.net/",
+    collection_ref: str = "Collection-rZX",
+    include_timestamps: bool = False,
+    include_scans: list[Any] | None = None,
+    omit_scans: bool = True,
+    observed: dict[str, Any] | None = None,
+    extra_top: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a fictional AzureStorage GET body for contract/unit fixtures."""
+    properties: dict[str, Any] = {
+        "endpoint": endpoint,
+        "collection": {
+            "referenceName": collection_ref,
+            "type": "CollectionReference",
+        },
+        "dataSourceCollectionMovingState": moving_state,
+    }
+    if include_timestamps:
+        properties["createdAt"] = "2022-08-05T07:13:08.032795Z"
+        properties["lastModifiedAt"] = "2022-08-05T07:13:08.032795Z"
+        properties["collection"]["lastModifiedAt"] = "2022-08-05T07:13:08.032795Z"
+    if observed:
+        properties.update(observed)
+    body: dict[str, Any] = {
+        "name": name,
+        "kind": "AzureStorage",
+        "creationType": creation_type,
+        "properties": properties,
+    }
+    if not omit_scans:
+        body["scans"] = include_scans if include_scans is not None else []
+    if extra_top:
+        body.update(extra_top)
+    return body
+
+
 @dataclass(frozen=True)
 class RecordedRequest:
     method: str
@@ -39,13 +80,17 @@ class ScenarioState:
     """Mutable per-server scenario knobs selected by tests."""
 
     # list_mode: one_page, paginated, empty, relative_next, cross_origin,
-    # loop_next, bad_shape, bad_json, http_error
+    # loop_next, bad_shape, bad_json, http_error, multi_unordered,
+    # duplicate_names, remote_state_mix
     list_mode: str = "one_page"
-    # get_mode: success, not_found, bad_json, bad_shape
+    # get_mode: success, not_found, bad_json, bad_shape, identity_mismatch,
+    # missing_name, missing_kind, unsupported_kind, unknown_field, sensitive,
+    # legacy_moving_zero, scans_empty, scans_nonempty, auto_managed, moving
     get_mode: str = "success"
     # put_mode: created, ok, bad_json
     put_mode: str = "created"
     put_expected_body: dict[str, Any] | None = None
+    get_bodies: dict[str, dict[str, Any]] = field(default_factory=dict)
     recordings: list[RecordedRequest] = field(default_factory=list)
 
 
@@ -189,6 +234,42 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                     },
                 )
                 return
+            if mode == "multi_unordered":
+                self._send_json(
+                    200,
+                    {
+                        "value": [
+                            {"name": "zetaSource", "kind": "AzureStorage"},
+                            {"name": "alphaSource", "kind": "AzureStorage"},
+                        ],
+                        "count": 2,
+                    },
+                )
+                return
+            if mode == "duplicate_names":
+                self._send_json(
+                    200,
+                    {
+                        "value": [
+                            {"name": "alphaSource", "kind": "AzureStorage"},
+                            {"name": "alphaSource", "kind": "AzureStorage"},
+                        ],
+                        "count": 2,
+                    },
+                )
+                return
+            if mode == "remote_state_mix":
+                self._send_json(
+                    200,
+                    {
+                        "value": [
+                            {"name": "betaSource", "kind": "AdlsGen2"},
+                            {"name": "alphaSource", "kind": "AzureStorage"},
+                        ],
+                        "count": 2,
+                    },
+                )
+                return
             if mode == "paginated":
                 query = parse_qs(urlparse(self.path).query)
                 if query.get("page") == ["2"]:
@@ -247,6 +328,10 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
             self._send_json(500, {"error": {"code": "UnknownScenario"}})
 
         def _handle_get(self, name: str) -> None:
+            if name in state.get_bodies:
+                self._send_json(200, state.get_bodies[name])
+                return
+
             mode = state.get_mode
             if mode == "not_found":
                 self._send_json(404, {"error": {"code": "NotFound"}})
@@ -257,15 +342,104 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
             if mode == "bad_shape":
                 self._send_json(200, ["not", "an", "object"])
                 return
+            if mode == "identity_mismatch":
+                self._send_json(
+                    200,
+                    azure_storage_fixture("otherSource"),
+                )
+                return
+            if mode == "missing_name":
+                body = azure_storage_fixture(name)
+                del body["name"]
+                self._send_json(200, body)
+                return
+            if mode == "missing_kind":
+                body = azure_storage_fixture(name)
+                del body["kind"]
+                self._send_json(200, body)
+                return
+            if mode == "unsupported_kind":
+                self._send_json(
+                    200,
+                    {
+                        "name": name,
+                        "kind": "AdlsGen2",
+                        "creationType": "Manual",
+                        "properties": {
+                            "endpoint": "https://datalake.dfs.core.windows.net/",
+                            "collection": {"referenceName": "root"},
+                            "dataSourceCollectionMovingState": "Active",
+                        },
+                    },
+                )
+                return
+            if mode == "unknown_field":
+                body = azure_storage_fixture(name)
+                body["unexpectedField"] = "x"
+                self._send_json(200, body)
+                return
+            if mode == "sensitive":
+                body = azure_storage_fixture(name)
+                body["properties"]["accountKey"] = "SUPER-SECRET-VALUE-DO-NOT-LEAK"
+                self._send_json(200, body)
+                return
+            if mode == "legacy_moving_zero":
+                # Official Get example wire quirk — not Active.
+                self._send_json(
+                    200,
+                    azure_storage_fixture(name, moving_state="0"),
+                )
+                return
+            if mode == "scans_empty":
+                self._send_json(
+                    200,
+                    azure_storage_fixture(name, omit_scans=False, include_scans=[]),
+                )
+                return
+            if mode == "scans_nonempty":
+                self._send_json(
+                    200,
+                    azure_storage_fixture(
+                        name,
+                        omit_scans=False,
+                        include_scans=[{"name": "scan1", "kind": "AzureStorageMsi"}],
+                    ),
+                )
+                return
+            if mode == "auto_managed":
+                self._send_json(
+                    200,
+                    azure_storage_fixture(name, creation_type="AutoManaged"),
+                )
+                return
+            if mode == "moving":
+                self._send_json(
+                    200,
+                    azure_storage_fixture(name, moving_state="Moving"),
+                )
+                return
+            # Default success body is intentionally richer than the historical
+            # minimal get fixture so remote-state capture can succeed in
+            # remote_state-oriented contract tests. Legacy client get tests that
+            # only assert kind/name continue to pass.
             self._send_json(
                 200,
-                {
-                    "name": name,
-                    "kind": "AzureStorage",
-                    "properties": {
-                        "endpoint": "https://example.blob.core.windows.net/",
+                azure_storage_fixture(
+                    name,
+                    include_timestamps=True,
+                    observed={
+                        "resourceGroup": "rg-example",
+                        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+                        "location": "westus2",
+                        "resourceName": "example",
+                        "resourceId": (
+                            "/subscriptions/00000000-0000-0000-0000-000000000001"
+                            "/resourceGroups/rg-example/providers/Microsoft.Storage"
+                            "/storageAccounts/example"
+                        ),
+                        "dataUseGovernance": "Disabled",
                     },
-                },
+                ),
             )
 
     return PurviewContractHandler
@@ -293,6 +467,7 @@ def start_contract_server(
     get_mode: str = "success",
     put_mode: str = "created",
     put_expected_body: dict[str, Any] | None = None,
+    get_bodies: dict[str, dict[str, Any]] | None = None,
 ) -> Iterator[ContractServer]:
     """Start an ephemeral loopback Purview contract server and guarantee teardown."""
     state = ScenarioState(
@@ -300,6 +475,7 @@ def start_contract_server(
         get_mode=get_mode,
         put_mode=put_mode,
         put_expected_body=put_expected_body,
+        get_bodies=dict(get_bodies or {}),
     )
     handler = _make_handler(state)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
