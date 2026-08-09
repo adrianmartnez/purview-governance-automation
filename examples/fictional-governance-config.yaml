@@ -1,0 +1,9 @@
+# Fictional sample — not a live Microsoft Purview account.
+# Example only: validates against purview-governance-config/v1.
+# No resource kinds are declared yet; resources must be an empty array.
+apiVersion: purview-governance-config/v1
+target:
+  endpoint: https://contoso-fictional.purview.azure.com
+authentication:
+  strategy: defaultAzureCredential
+resources: []

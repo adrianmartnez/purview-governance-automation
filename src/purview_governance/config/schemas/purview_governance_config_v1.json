@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-config/v1",
+  "title": "purview-governance-config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "target", "authentication", "resources"],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-governance-config/v1"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint"],
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "const": "defaultAzureCredential"
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "maxItems": 0
+    }
+  }
+}

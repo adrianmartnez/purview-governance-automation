@@ -1,0 +1,31 @@
+"""Tests for packaged governance config schema loading."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from jsonschema import Draft202012Validator
+
+from purview_governance.config.schema import load_v1_schema
+from purview_governance.config.service import validate_config_file
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SAMPLE = REPO_ROOT / "examples" / "fictional-governance-config.yaml"
+
+
+def test_load_v1_schema_from_package_resources() -> None:
+    schema = load_v1_schema()
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert (
+        schema["$id"]
+        == "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-config/v1"
+    )
+    Draft202012Validator.check_schema(schema)
+
+
+def test_sample_config_validates() -> None:
+    config = validate_config_file(SAMPLE)
+    assert config.api_version == "purview-governance-config/v1"
+    assert config.target.endpoint == "https://contoso-fictional.purview.azure.com"
+    assert config.authentication.strategy == "defaultAzureCredential"
+    assert config.resources == ()

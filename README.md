@@ -7,16 +7,19 @@ Development package version: `0.1.0.dev0` (pre-v1.0; not a stable release).
 
 ## Status
 
-Implemented after the package/CLI/CI foundation:
+Implemented:
 
 - installable Python package and packaging foundation (`src/` layout, wheel/sdist)
 - minimal `purview-governance` CLI foundation (`--help`, `--version`)
 - CI and offline test infrastructure (lint, unit tests, package validation,
   contract-lane harness readiness, CLI integration against an installed wheel)
+- versioned governance configuration contract `purview-governance-config/v1` (#8):
+  packaged JSON Schema, offline YAML/JSON parsing/validation/normalization,
+  stable diagnostics, and a `config validate` application service (not yet exposed
+  as a public CLI subcommand)
 
 Not implemented yet:
 
-- versioned governance configuration contract (#8)
 - Microsoft Entra authentication (#9)
 - Purview Scanning Data Plane client (#10)
 - Purview-specific API contract-test server (#11)
@@ -31,31 +34,28 @@ The required CI check `api-contract-tests` currently validates only offline read
 of the contract-test lane harness. Issue #11 will introduce the Purview-specific
 mock/contract server.
 
-## Project direction
+## Governance configuration (v1)
 
-The project will focus on:
+Contract name: `purview-governance-config`. Contract version `1` is independent of
+the package SemVer.
 
-- Microsoft Purview Data Map automation
-- registered data sources and scan configuration
-- scan rule sets and classification rules
-- deterministic desired-state comparison and planning
-- safe, explicit API mutation boundaries
-- governance drift detection
-- Microsoft Purview Unified Catalog integration
-- reproducible CLI and CI workflows
-- contract-tested behavior without requiring a live Microsoft Purview account for
-  the default test suite
+- Load YAML or JSON offline (no network calls, no remote writes).
+- Duplicate object/mapping keys are rejected (`config.duplicate_key`); last-value-wins
+  is never applied.
+- YAML uses SafeLoader semantics via a strict `SafeLoader` subclass that only adds
+  duplicate-key rejection and string-key enforcement.
+- Unknown fields fail closed. Credential material field names are rejected with
+  `config.secret_field_forbidden`.
+- `resources` must be an empty array in v1 (no resource kinds are supported yet).
+- Sample (fictional values only): `examples/fictional-governance-config.yaml`.
 
-## Design principles
+Application helpers:
 
-1. Plan before apply.
-2. Deterministic outputs and reproducible decisions.
-3. Credentials never belong in committed configuration.
-4. Read-only and dry-run workflows are the default.
-5. Remote mutations must be explicit.
-6. Preview Microsoft APIs remain isolated behind explicit compatibility boundaries.
-7. Public documentation must distinguish implemented capabilities, contract-tested
-   behavior, and validation against a live Microsoft Purview environment.
+```python
+from purview_governance.config import validate_config_file
+
+config = validate_config_file("examples/fictional-governance-config.yaml")
+```
 
 ## Development
 
@@ -77,15 +77,12 @@ pytest -m api_contract
 python -m build
 ```
 
-Package and CLI smoke should use the built wheel in a clean environment and run
-from a temporary working directory outside the checkout so imports cannot come
-from the source tree.
+Package and CLI smoke should use the built wheel in a clean environment under a
+temporary directory outside the checkout (for example `$TEMP` / `$RUNNER_TEMP`) so
+imports cannot come from the source tree.
 
 ```bash
-python -m venv .venv-wheel
-# activate .venv-wheel, then:
-pip install dist/purview_governance_automation-*.whl
-# cd to a temp directory outside the repo, then:
+# create a temp venv outside the repo, install the wheel, then from a temp cwd:
 purview-governance --version
 purview-governance --help
 python -m purview_governance --version
