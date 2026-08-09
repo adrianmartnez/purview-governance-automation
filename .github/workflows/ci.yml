@@ -101,6 +101,7 @@ jobs:
           test -f "$ROOT/src/purview_governance/cli.py"
           test -f "$ROOT/src/purview_governance/__main__.py"
           test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v1.json"
+          test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v1.json"
           test -f "$ROOT/examples/fictional-governance-config.yaml"
 
           python -m venv "$RUNNER_TEMP/venv-wheel"
@@ -112,6 +113,7 @@ jobs:
             cd "$SMOKE_DIR"
             python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
             python -c "from purview_governance.config.schema import load_v1_schema; s=load_v1_schema(); assert s['\$id'].endswith('/purview-governance-config/v1'), s.get('\$id'); print('schema-ok', s['\$id'])"
+            python -c "from purview_governance.remote_state import load_remote_state_v1_schema, build_remote_state; s=load_remote_state_v1_schema(); assert s['\$id'].endswith('/purview-remote-state/v1'), s.get('\$id'); rs=build_remote_state((), ()); assert rs.material_state_identity.startswith('sha256:'); print('remote-state-ok', s['\$id'], rs.material_state_identity)"
             python -c "import httpx; from purview_governance.scanning import PurviewScanningClient, SCANNING_API_VERSION; assert SCANNING_API_VERSION == '2023-09-01'; print('scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
           )
           deactivate
@@ -136,6 +138,7 @@ jobs:
             cd "$SMOKE2"
             python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
             python -c "from purview_governance.config.schema import load_v1_schema; load_v1_schema(); print('sdist-schema-ok')"
+            python -c "from purview_governance.remote_state import load_remote_state_v1_schema, build_remote_state; load_remote_state_v1_schema(); rs=build_remote_state((), ()); assert rs.material_state_identity.startswith('sha256:'); print('sdist-remote-state-ok')"
             python -c "import httpx; from purview_governance.scanning import PurviewScanningClient; print('sdist-scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
           )
 

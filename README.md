@@ -26,10 +26,14 @@ Implemented:
 - deterministic Purview API contract-test server (#11): real HTTP over loopback
   with fictional Data Source fixtures, request recording without raw
   Authorization values, and the `api-contract-tests` CI lane
+- read-only Purview Data Source remote-state inspection (#12): List+Get capture,
+  AzureStorage vertical-slice normalization, packaged `purview-remote-state/v1`
+  schema, canonical JSON, stable `materialStateIdentity`, and project safety
+  validation for material Data Source endpoints (HTTPS; no userinfo/query/fragment)
 
 Not implemented yet:
 
-- remote state, diff, plan, and apply workflows (#12–#15)
+- desired-state diff, plan, and apply workflows (#13–#15)
 - complete v1.0 CLI workflows and documentation (#16)
 - stable `v1.0.0` release (#17)
 - scans, scan rule sets, and classifications (v1.1)
@@ -38,9 +42,9 @@ Not implemented yet:
 No production Purview capability is claimed. Behavior has not been validated against
 a live Microsoft Purview environment.
 
-The required CI check `api-contract-tests` exercises the Scanning client against a
-deterministic local HTTP contract server. It does not contact a live Microsoft
-Purview account.
+The required CI check `api-contract-tests` exercises the Scanning client and
+remote-state capture against a deterministic local HTTP contract server. It does
+not contact a live Microsoft Purview account.
 
 ## Governance configuration (v1)
 
@@ -102,6 +106,15 @@ automatic writes.
 Default unit tests use fake credentials and injected/mocked HTTP transports.
 Contract tests use a deterministic loopback HTTP server with fictional fixtures.
 Neither lane contacts a live Microsoft Purview account.
+
+## Remote state
+
+`capture_remote_state` discovers Data Sources via `list_data_sources`, then reads
+each authoritative body with `get_data_source` (List+Get). It normalizes only the
+AzureStorage vertical slice, accounts for unsupported kinds, and emits
+`purview-remote-state/v1` with a non-self-referential `materialStateIdentity`.
+Material Data Source endpoints are validated with a project safety policy (HTTPS;
+no userinfo, query, or fragment) so credential-bearing URLs cannot enter artifacts.
 
 ## Development
 

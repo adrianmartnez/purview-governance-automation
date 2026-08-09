@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-remote-state/v1",
+  "title": "purview-remote-state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "dataSources",
+    "uninterpretedDataSources",
+    "materialStateIdentity"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-remote-state/v1"
+    },
+    "dataSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "name",
+          "kind",
+          "creationType",
+          "properties",
+          "observedProperties"
+        ],
+        "properties": {
+          "type": { "const": "dataSource" },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "const": "AzureStorage" },
+          "creationType": {
+            "type": "string",
+            "enum": ["Manual", "AutoNative", "AutoManaged"]
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "endpoint",
+              "collection",
+              "dataSourceCollectionMovingState"
+            ],
+            "properties": {
+              "endpoint": { "type": "string", "minLength": 1 },
+              "collection": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["referenceName"],
+                "properties": {
+                  "referenceName": { "type": "string", "minLength": 1 }
+                }
+              },
+              "dataSourceCollectionMovingState": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": ["Active", "Moving", "Failed"]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "raw"],
+                    "properties": {
+                      "kind": { "const": "unknownLegacyValue" },
+                      "raw": { "const": "0" }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "observedProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "resourceGroup": { "type": "string" },
+              "subscriptionId": { "type": "string" },
+              "location": { "type": "string" },
+              "resourceName": { "type": "string" },
+              "resourceId": { "type": "string" },
+              "dataUseGovernance": {
+                "type": "string",
+                "enum": [
+                  "Disabled",
+                  "DisabledByAnotherAccount",
+                  "Enabled",
+                  "EnabledAtAncestorScope"
+                ]
+              },
+              "id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "uninterpretedDataSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "reasonCode"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "type": "string", "minLength": 1 },
+          "reasonCode": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "materialStateIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
