@@ -112,6 +112,7 @@ jobs:
             cd "$SMOKE_DIR"
             python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
             python -c "from purview_governance.config.schema import load_v1_schema; s=load_v1_schema(); assert s['\$id'].endswith('/purview-governance-config/v1'), s.get('\$id'); print('schema-ok', s['\$id'])"
+            python -c "import httpx; from purview_governance.scanning import PurviewScanningClient, SCANNING_API_VERSION; assert SCANNING_API_VERSION == '2023-09-01'; print('scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
           )
           deactivate
 
@@ -135,6 +136,7 @@ jobs:
             cd "$SMOKE2"
             python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
             python -c "from purview_governance.config.schema import load_v1_schema; load_v1_schema(); print('sdist-schema-ok')"
+            python -c "import httpx; from purview_governance.scanning import PurviewScanningClient; print('sdist-scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
           )
 
   api-contract-tests:
@@ -154,9 +156,9 @@ jobs:
       - name: Install package with dev tools
         run: pip install -e ".[dev]"
 
-      # PR1: validates offline readiness of the contract-test lane harness only.
-      # Issue #11 introduces the Purview-specific mock/contract server.
-      - name: Run contract-lane harness readiness tests
+      # Offline real-HTTP contract tests against a deterministic loopback server.
+      # Does not contact Microsoft Purview or require Azure credentials.
+      - name: Run offline Purview API contract tests
         run: pytest -m api_contract
 
   cli-integration:

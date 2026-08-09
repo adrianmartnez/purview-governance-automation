@@ -12,7 +12,7 @@ Implemented:
 - installable Python package and packaging foundation (`src/` layout, wheel/sdist)
 - minimal `purview-governance` CLI foundation (`--help`, `--version`)
 - CI and offline test infrastructure (lint, unit tests, package validation,
-  contract-lane harness readiness, CLI integration against an installed wheel)
+  offline API contract tests, CLI integration against an installed wheel)
 - versioned governance configuration contract `purview-governance-config/v1` (#8):
   packaged JSON Schema, offline YAML/JSON parsing/validation/normalization,
   stable diagnostics, and a `config validate` application service (not yet exposed
@@ -20,21 +20,27 @@ Implemented:
 - Microsoft Entra authentication boundary (#9): `TokenCredential`-based provider,
   centralized Purview OAuth scope, sanitized auth errors, and a convenient
   `DefaultAzureCredential` factory (replaceable; offline/fake tests only by default)
+- Purview Scanning Data Plane client foundation (#10), API version `2023-09-01`:
+  Data Source list/get, internal create-or-replace primitive, bounded timeouts,
+  sanitized errors, injectable HTTP transport for offline unit tests
+- deterministic Purview API contract-test server (#11): real HTTP over loopback
+  with fictional Data Source fixtures, request recording without raw
+  Authorization values, and the `api-contract-tests` CI lane
 
 Not implemented yet:
 
-- Purview Scanning Data Plane client (#10)
-- Purview-specific API contract-test server (#11)
 - remote state, diff, plan, and apply workflows (#12–#15)
 - complete v1.0 CLI workflows and documentation (#16)
 - stable `v1.0.0` release (#17)
+- scans, scan rule sets, and classifications (v1.1)
+- validation against a live Microsoft Purview environment
 
 No production Purview capability is claimed. Behavior has not been validated against
 a live Microsoft Purview environment.
 
-The required CI check `api-contract-tests` currently validates only offline readiness
-of the contract-test lane harness. Issue #11 will introduce the Purview-specific
-mock/contract server.
+The required CI check `api-contract-tests` exercises the Scanning client against a
+deterministic local HTTP contract server. It does not contact a live Microsoft
+Purview account.
 
 ## Governance configuration (v1)
 
@@ -82,6 +88,20 @@ Do not put secrets in governance configuration files.
 This project does not enable detailed Azure Identity credential logging. Consumers
 should not enable sensitive credential logging in environments where logs are not
 adequately protected.
+
+## Scanning Data Plane client foundation
+
+`PurviewScanningClient` targets the Microsoft Purview Scanning Data Plane API
+version `2023-09-01` for the v1 Data Source read path (list/get) and exposes an
+internal create-or-replace primitive for later explicit apply. It uses HTTPS
+endpoints normalized by the governance config contract, obtains `Authorization`
+only in memory via `PurviewAuthorizationProvider`, applies bounded connect/read
+timeouts, does not follow redirects, and does not perform automatic retries or
+automatic writes.
+
+Default unit tests use fake credentials and injected/mocked HTTP transports.
+Contract tests use a deterministic loopback HTTP server with fictional fixtures.
+Neither lane contacts a live Microsoft Purview account.
 
 ## Development
 
