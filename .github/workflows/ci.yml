@@ -1,0 +1,198 @@
+# Required status check job names (ruleset Protect main):
+# lint, unit-tests, package-validation, api-contract-tests, cli-integration
+#
+# Action SHAs are pinned for immutability (supply-chain risk reduction vs moving tags).
+
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package with dev tools
+        run: pip install -e ".[dev]"
+
+      - name: Ruff check
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+  unit-tests:
+    name: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package with dev tools
+        run: pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest -m "not api_contract"
+
+  package-validation:
+    name: package-validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install -e ".[dev]"
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Validate artifacts, clean-wheel smoke, and sdist rebuild
+        run: |
+          set -euo pipefail
+          EXPECTED_VERSION="0.1.0.dev0"
+          WHL=$(ls dist/purview_governance_automation-${EXPECTED_VERSION}-*.whl)
+          SDIST=$(ls dist/purview_governance_automation-${EXPECTED_VERSION}.tar.gz)
+          test -f "$WHL"
+          test -f "$SDIST"
+
+          SDIST_DIR=$(mktemp -d)
+          tar -xf "$SDIST" -C "$SDIST_DIR"
+          ROOT=$(echo "$SDIST_DIR"/purview_governance_automation-*)
+          test -f "$ROOT/pyproject.toml"
+          test -f "$ROOT/README.md"
+          test -f "$ROOT/LICENSE"
+          test -f "$ROOT/src/purview_governance/__init__.py"
+          test -f "$ROOT/src/purview_governance/cli.py"
+          test -f "$ROOT/src/purview_governance/__main__.py"
+
+          python -m venv "$RUNNER_TEMP/venv-wheel"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-wheel/bin/activate"
+          pip install "$WHL"
+          SMOKE_DIR=$(mktemp -d)
+          (
+            cd "$SMOKE_DIR"
+            python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
+          )
+          deactivate
+
+          python -m venv "$RUNNER_TEMP/venv-sdist-build"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-sdist-build/bin/activate"
+          pip install build
+          (
+            cd "$ROOT"
+            python -m build
+          )
+          SDIST_WHL=$(ls "$ROOT"/dist/purview_governance_automation-${EXPECTED_VERSION}-*.whl)
+          deactivate
+
+          python -m venv "$RUNNER_TEMP/venv-sdist-wheel"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-sdist-wheel/bin/activate"
+          pip install "$SDIST_WHL"
+          SMOKE2=$(mktemp -d)
+          (
+            cd "$SMOKE2"
+            python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
+          )
+
+  api-contract-tests:
+    name: api-contract-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install package with dev tools
+        run: pip install -e ".[dev]"
+
+      # PR1: validates offline readiness of the contract-test lane harness only.
+      # Issue #11 introduces the Purview-specific mock/contract server.
+      - name: Run contract-lane harness readiness tests
+        run: pytest -m api_contract
+
+  cli-integration:
+    name: cli-integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install build
+
+      - name: Build wheel
+        run: python -m build
+
+      - name: Install wheel and exercise CLI from temp directory
+        run: |
+          set -euo pipefail
+          EXPECTED_VERSION="0.1.0.dev0"
+          WHL=$(ls dist/purview_governance_automation-${EXPECTED_VERSION}-*.whl)
+          python -m venv "$RUNNER_TEMP/venv-cli"
+          # shellcheck disable=SC1091
+          source "$RUNNER_TEMP/venv-cli/bin/activate"
+          pip install "$WHL"
+          SMOKE_DIR=$(mktemp -d)
+          cd "$SMOKE_DIR"
+          purview-governance --version | grep -F "purview-governance ${EXPECTED_VERSION}"
+          purview-governance --help | grep -F "purview-governance"
+          python -m purview_governance --version | grep -F "purview-governance ${EXPECTED_VERSION}"
+          python -m purview_governance --help | grep -F "purview-governance"
+          set +e
+          purview-governance --definitely-not-a-flag
+          status=$?
+          set -e
+          test "$status" -ne 0
+          test "$status" -eq 2
