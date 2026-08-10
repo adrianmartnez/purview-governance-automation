@@ -33,10 +33,15 @@ Implemented:
   safety/identity; offline/fake and loopback contract tests only)
 - deterministic Data Source desired-state diff (#13): create / replace / no-op /
   remote-only / blocked outcomes with property-level reasons; read-only; no delete
+- versioned deterministic governance plan artifacts (#14):
+  `purview-governance-plan/v1` with domain-separated identities, desired-state
+  snapshot, closed change-set/operations contract, whole-plan
+  `executionEligibility` (`ready` / `blocked`), JSON-only loader with schema +
+  semantic integrity, and offline `build_governance_plan(config, remote_state)`
+  (zero remote writes; no public plan CLI yet)
 
 Not implemented yet:
 
-- governance plan artifacts (#14)
 - safe explicit apply (#15)
 - complete v1.0 CLI workflows and documentation (#16)
 - stable `v1.0.0` release (#17)
@@ -75,6 +80,7 @@ Application helpers:
 from purview_governance.config import validate_config_file
 from purview_governance.desired import desired_state_from_config
 from purview_governance.diff import diff_desired_vs_remote
+from purview_governance.plan import build_governance_plan
 
 config = validate_config_file("examples/fictional-governance-config.yaml")
 desired = desired_state_from_config(config)
@@ -129,6 +135,23 @@ AzureStorage vertical slice, accounts for unsupported kinds, and emits
 `replace`, `no-op`, `remote-only`, and `blocked`. There is no `delete` outcome.
 Remote-only means unmanaged visibility; omission from desired does not imply
 ownership or deletion. Diff does not authorize or execute writes.
+
+## Governance plan artifacts (v1)
+
+`build_governance_plan` derives desired state and diff internally from a
+revalidated `GovernanceConfig` and a canonical `purview-remote-state/v1` input.
+The resulting `purview-governance-plan/v1` artifact is self-contained for later
+apply review: it stores the normalized desired snapshot, change set, ordered
+create/replace operations, and identities for target context, material
+configuration, desired state, remote state (`materialStateIdentity`), and the
+plan itself (`planIdentity`).
+
+`executionEligibility=blocked` means future apply (#15) must perform zero writes
+for the whole plan, even if create/replace candidates are listed for review.
+Plans contain no credentials. Auth strategy is validated as part of the config
+contract but is excluded from material configuration identity. Loader accepts
+lexically equivalent JSON (pretty-print / key order) while rejecting noncanonical
+field values and closed reason/outcome mismatches.
 
 ## Development
 
