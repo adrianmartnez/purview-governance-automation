@@ -63,6 +63,60 @@ def azure_storage_fixture(
     return body
 
 
+def azure_storage_msi_scan_fixture(
+    name: str,
+    *,
+    data_source_name: str = "alphaSource",
+    creation_type: str = "Manual",
+    scan_ruleset_name: str = "AzureStorage",
+    scan_ruleset_type: str = "System",
+    collection_ref: str = "Collection-rZX",
+) -> dict[str, Any]:
+    """Minimal material-only AzureStorageMsi Scan GET body."""
+    return {
+        "name": name,
+        "dataSourceName": data_source_name,
+        "kind": "AzureStorageMsi",
+        "creationType": creation_type,
+        "properties": {
+            "scanRulesetName": scan_ruleset_name,
+            "scanRulesetType": scan_ruleset_type,
+            "collection": {
+                "referenceName": collection_ref,
+                "type": "CollectionReference",
+            },
+        },
+    }
+
+
+def custom_azure_storage_scan_ruleset_fixture(
+    name: str,
+    *,
+    file_extensions: list[str] | None = None,
+    excluded_system_classifications: list[str] | None = None,
+    included_custom_classification_rule_names: list[str] | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Custom AzureStorage Scan Rule Set with top-level scanRulesetType."""
+    properties: dict[str, Any] = {
+        "scanningRule": {
+            "fileExtensions": list(file_extensions or ["CSV", "JSON"]),
+        },
+        "excludedSystemClassifications": list(excluded_system_classifications or []),
+        "includedCustomClassificationRuleNames": list(
+            included_custom_classification_rule_names or []
+        ),
+    }
+    if description is not None:
+        properties["description"] = description
+    return {
+        "name": name,
+        "kind": "AzureStorage",
+        "scanRulesetType": "Custom",
+        "properties": properties,
+    }
+
+
 @dataclass(frozen=True)
 class RecordedRequest:
     method: str
@@ -96,6 +150,17 @@ class ScenarioState:
     put_script_index: int = 0
     get_bodies: dict[str, dict[str, Any]] = field(default_factory=dict)
     recordings: list[RecordedRequest] = field(default_factory=list)
+    # Scan inventory under a data source: empty, success, http_error, bad_json, bad_shape
+    scan_list_mode: str = "empty"
+    # Scan GET: success, not_found, http_error, bad_json
+    scan_get_mode: str = "success"
+    scan_bodies: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
+    scan_list_bodies: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Scan rule set list/get modes
+    scan_ruleset_list_mode: str = "empty"
+    scan_ruleset_get_mode: str = "success"
+    scan_ruleset_bodies: dict[str, dict[str, Any]] = field(default_factory=dict)
+    scan_ruleset_list_items: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _json_bytes(payload: Any) -> bytes:
@@ -167,12 +232,31 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                 self._handle_list()
                 return
 
-            if parsed.path.startswith("/scan/datasources/"):
-                name = parsed.path.removeprefix("/scan/datasources/")
+            if parsed.path == "/scan/scanrulesets":
+                self._handle_list_scan_rulesets()
+                return
+
+            if parsed.path.startswith("/scan/scanrulesets/"):
+                name = parsed.path.removeprefix("/scan/scanrulesets/")
                 if "/" in name or not name:
                     self._send_json(404, {"error": {"code": "NotFound"}})
                     return
-                self._handle_get(name)
+                self._handle_get_scan_ruleset(name)
+                return
+
+            if parsed.path.startswith("/scan/datasources/"):
+                remainder = parsed.path.removeprefix("/scan/datasources/")
+                parts = [part for part in remainder.split("/") if part != ""]
+                if len(parts) == 1:
+                    self._handle_get(parts[0])
+                    return
+                if len(parts) == 2 and parts[1] == "scans":
+                    self._handle_list_scans(parts[0])
+                    return
+                if len(parts) == 3 and parts[1] == "scans":
+                    self._handle_get_scan(parts[0], parts[2])
+                    return
+                self._send_json(404, {"error": {"code": "NotFound"}})
                 return
 
             self._send_json(404, {"error": {"code": "NotFound"}})
@@ -474,6 +558,97 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                 ),
             )
 
+        def _handle_list_scans(self, data_source_name: str) -> None:
+            mode = state.scan_list_mode
+            if mode == "http_error":
+                self._send_json(503, {"error": {"code": "Unavailable"}})
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"{", "application/json")
+                return
+            if mode == "bad_shape":
+                self._send_json(200, {"value": "not-an-array"})
+                return
+            if mode == "empty":
+                self._send_json(200, {"value": [], "count": 0})
+                return
+            if data_source_name in state.scan_list_bodies:
+                items = state.scan_list_bodies[data_source_name]
+                self._send_json(200, {"value": items, "count": len(items)})
+                return
+            if mode == "success":
+                items = [
+                    {
+                        "name": "alphaScan",
+                        "kind": "AzureStorageMsi",
+                        "dataSourceName": data_source_name,
+                    }
+                ]
+                self._send_json(200, {"value": items, "count": 1})
+                return
+            self._send_json(500, {"error": {"code": "UnknownScenario"}})
+
+        def _handle_get_scan(self, data_source_name: str, scan_name: str) -> None:
+            key = (data_source_name, scan_name)
+            if key in state.scan_bodies:
+                self._send_json(200, state.scan_bodies[key])
+                return
+            mode = state.scan_get_mode
+            if mode == "not_found":
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            if mode == "http_error":
+                self._send_json(503, {"error": {"code": "Unavailable"}})
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"not-json", "application/json")
+                return
+            self._send_json(
+                200,
+                azure_storage_msi_scan_fixture(
+                    scan_name,
+                    data_source_name=data_source_name,
+                ),
+            )
+
+        def _handle_list_scan_rulesets(self) -> None:
+            mode = state.scan_ruleset_list_mode
+            if mode == "http_error":
+                self._send_json(503, {"error": {"code": "Unavailable"}})
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"{", "application/json")
+                return
+            if mode == "bad_shape":
+                self._send_json(200, {"value": "not-an-array"})
+                return
+            if mode == "empty":
+                self._send_json(200, {"value": [], "count": 0})
+                return
+            if mode == "success" or state.scan_ruleset_list_items:
+                items = state.scan_ruleset_list_items or [
+                    {"name": "custom-rules", "kind": "AzureStorage"}
+                ]
+                self._send_json(200, {"value": items, "count": len(items)})
+                return
+            self._send_json(500, {"error": {"code": "UnknownScenario"}})
+
+        def _handle_get_scan_ruleset(self, name: str) -> None:
+            if name in state.scan_ruleset_bodies:
+                self._send_json(200, state.scan_ruleset_bodies[name])
+                return
+            mode = state.scan_ruleset_get_mode
+            if mode == "not_found":
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            if mode == "http_error":
+                self._send_json(503, {"error": {"code": "Unavailable"}})
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"not-json", "application/json")
+                return
+            self._send_json(200, custom_azure_storage_scan_ruleset_fixture(name))
+
     return PurviewContractHandler
 
 
@@ -501,6 +676,14 @@ def start_contract_server(
     put_expected_body: dict[str, Any] | None = None,
     put_script: list[str] | None = None,
     get_bodies: dict[str, dict[str, Any]] | None = None,
+    scan_list_mode: str = "empty",
+    scan_get_mode: str = "success",
+    scan_bodies: dict[tuple[str, str], dict[str, Any]] | None = None,
+    scan_list_bodies: dict[str, list[dict[str, Any]]] | None = None,
+    scan_ruleset_list_mode: str = "empty",
+    scan_ruleset_get_mode: str = "success",
+    scan_ruleset_bodies: dict[str, dict[str, Any]] | None = None,
+    scan_ruleset_list_items: list[dict[str, Any]] | None = None,
 ) -> Iterator[ContractServer]:
     """Start an ephemeral loopback Purview contract server and guarantee teardown."""
     state = ScenarioState(
@@ -510,6 +693,14 @@ def start_contract_server(
         put_expected_body=put_expected_body,
         put_script=list(put_script or []),
         get_bodies=dict(get_bodies or {}),
+        scan_list_mode=scan_list_mode,
+        scan_get_mode=scan_get_mode,
+        scan_bodies=dict(scan_bodies or {}),
+        scan_list_bodies=dict(scan_list_bodies or {}),
+        scan_ruleset_list_mode=scan_ruleset_list_mode,
+        scan_ruleset_get_mode=scan_ruleset_get_mode,
+        scan_ruleset_bodies=dict(scan_ruleset_bodies or {}),
+        scan_ruleset_list_items=list(scan_ruleset_list_items or []),
     )
     handler = _make_handler(state)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)

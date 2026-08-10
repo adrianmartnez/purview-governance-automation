@@ -1,0 +1,335 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-plan/v2",
+  "title": "purview-governance-plan v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "configurationApiVersion",
+    "targetContext",
+    "identities",
+    "desiredState",
+    "changeSet",
+    "executionEligibility",
+    "operations",
+    "summary",
+    "planIdentity"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-governance-plan/v2"
+    },
+    "configurationApiVersion": {
+      "type": "string",
+      "enum": [
+        "purview-governance-config/v1",
+        "purview-governance-config/v2"
+      ]
+    },
+    "targetContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "identity"],
+      "properties": {
+        "endpoint": { "type": "string", "minLength": 1 },
+        "identity": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["materialConfiguration", "desiredState", "remoteState"],
+      "properties": {
+        "materialConfiguration": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "desiredState": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "remoteState": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "desiredState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataSources", "scanRuleSets", "scans"],
+      "properties": {
+        "dataSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "name", "kind", "properties"],
+            "properties": {
+              "type": { "const": "dataSource" },
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "kind": { "const": "AzureStorage" },
+              "properties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["endpoint", "collection"],
+                "properties": {
+                  "endpoint": { "type": "string", "minLength": 1 },
+                  "collection": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["referenceName"],
+                    "properties": {
+                      "referenceName": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "scanRuleSets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "name", "kind", "scanRulesetType", "properties"],
+            "properties": {
+              "type": { "const": "scanRuleSet" },
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "kind": { "const": "AzureStorage" },
+              "scanRulesetType": { "const": "Custom" },
+              "properties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "scanningRule",
+                  "excludedSystemClassifications",
+                  "includedCustomClassificationRuleNames"
+                ],
+                "properties": {
+                  "scanningRule": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["fileExtensions"],
+                    "properties": {
+                      "fileExtensions": {
+                        "type": "array",
+                        "items": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  },
+                  "excludedSystemClassifications": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "includedCustomClassificationRuleNames": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "scans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "name", "kind", "properties"],
+            "properties": {
+              "type": { "const": "scan" },
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "kind": { "const": "AzureStorageMsi" },
+              "properties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "dataSourceName",
+                  "scanRulesetName",
+                  "scanRulesetType",
+                  "collection"
+                ],
+                "properties": {
+                  "dataSourceName": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 63,
+                    "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+                  },
+                  "scanRulesetName": { "type": "string", "minLength": 1 },
+                  "scanRulesetType": {
+                    "type": "string",
+                    "enum": ["System", "Custom"]
+                  },
+                  "collection": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["referenceName"],
+                    "properties": {
+                      "referenceName": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "changeSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type", "outcome", "reasons"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["dataSource", "scan", "scanRuleSet"]
+              },
+              "dataSourceName": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": ["create", "replace", "no-op", "remote-only", "blocked"]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["code", "path"],
+                  "properties": {
+                    "code": { "type": "string", "minLength": 1 },
+                    "path": { "type": "string", "minLength": 1 },
+                    "before": { "type": "string" },
+                    "after": { "type": "string" }
+                  }
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": { "type": { "const": "scan" } },
+                  "required": ["type"]
+                },
+                "then": { "required": ["dataSourceName"] }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "executionEligibility": {
+      "type": "string",
+      "enum": ["ready", "blocked"]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "type", "name", "action"],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": ["dataSource", "scan", "scanRuleSet"]
+          },
+          "dataSourceName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "replace"]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "type": { "const": "scan" } },
+              "required": ["type"]
+            },
+            "then": { "required": ["dataSourceName"] }
+          }
+        ]
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "create",
+        "replace",
+        "noOp",
+        "remoteOnly",
+        "blocked",
+        "operations"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "create": { "type": "integer", "minimum": 0 },
+        "replace": { "type": "integer", "minimum": 0 },
+        "noOp": { "type": "integer", "minimum": 0 },
+        "remoteOnly": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "operations": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "planIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}
