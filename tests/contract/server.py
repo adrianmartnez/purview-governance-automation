@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -87,9 +87,13 @@ class ScenarioState:
     # missing_name, missing_kind, unsupported_kind, unknown_field, sensitive,
     # legacy_moving_zero, scans_empty, scans_nonempty, auto_managed, moving
     get_mode: str = "success"
-    # put_mode: created, ok, bad_json
+    # put_mode: created, ok, bad_json, ok_bad_json, created_bad_json,
+    # client_error, server_error, disconnect_after_record, script
     put_mode: str = "created"
     put_expected_body: dict[str, Any] | None = None
+    # When put_mode == "script", consume one entry per PUT (created/ok/...).
+    put_script: list[str] = field(default_factory=list)
+    put_script_index: int = 0
     get_bodies: dict[str, dict[str, Any]] = field(default_factory=dict)
     recordings: list[RecordedRequest] = field(default_factory=list)
 
@@ -196,16 +200,44 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(404, {"error": {"code": "NotFound"}})
                 return
 
-            if state.put_mode == "bad_json":
-                self._send_raw(200, b"not-json", "application/json")
-                return
-
             if state.put_expected_body is not None and body != state.put_expected_body:
                 self._send_json(400, {"error": {"code": "BodyMismatch"}})
                 return
 
+            mode = state.put_mode
+            if mode == "script":
+                if state.put_script_index >= len(state.put_script):
+                    self._send_json(500, {"error": {"code": "ScriptExhausted"}})
+                    return
+                mode = state.put_script[state.put_script_index]
+                state.put_script_index += 1
+
+            if mode in {"bad_json", "ok_bad_json"}:
+                self._send_raw(200, b"not-json", "application/json")
+                return
+            if mode == "created_bad_json":
+                self._send_raw(201, b"not-json", "application/json")
+                return
+            if mode == "client_error":
+                self._send_json(
+                    409,
+                    {"error": {"code": "Conflict", "message": "SECRET_SENTINEL_contract_4xx"}},
+                )
+                return
+            if mode == "server_error":
+                self._send_json(
+                    503,
+                    {"error": {"code": "Unavailable", "message": "SECRET_SENTINEL_contract_5xx"}},
+                )
+                return
+            if mode == "disconnect_after_record":
+                # Close without a usable HTTP response after recording the PUT.
+                with suppress(OSError):
+                    self.connection.close()
+                return
+
             response = {"name": name, "kind": (body or {}).get("kind", "AzureStorage")}
-            status = 201 if state.put_mode == "created" else 200
+            status = 201 if mode == "created" else 200
             self._send_json(status, response)
 
         def _handle_list(self) -> None:
@@ -467,6 +499,7 @@ def start_contract_server(
     get_mode: str = "success",
     put_mode: str = "created",
     put_expected_body: dict[str, Any] | None = None,
+    put_script: list[str] | None = None,
     get_bodies: dict[str, dict[str, Any]] | None = None,
 ) -> Iterator[ContractServer]:
     """Start an ephemeral loopback Purview contract server and guarantee teardown."""
@@ -475,6 +508,7 @@ def start_contract_server(
         get_mode=get_mode,
         put_mode=put_mode,
         put_expected_body=put_expected_body,
+        put_script=list(put_script or []),
         get_bodies=dict(get_bodies or {}),
     )
     handler = _make_handler(state)

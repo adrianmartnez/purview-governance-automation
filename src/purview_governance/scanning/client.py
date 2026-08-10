@@ -53,6 +53,14 @@ class DataSourceListResult:
         return len(self.items)
 
 
+@dataclass(frozen=True, slots=True)
+class DataSourceWriteReceipt:
+    """Package-private confirmed write receipt (HTTP 200/201; no response body)."""
+
+    name: str
+    status_code: int
+
+
 def _defensive_snapshot(value: Any) -> Any:
     """Deep-copy JSON-plain structures returned to callers (not deep-immutable)."""
     return copy.deepcopy(value)
@@ -174,6 +182,7 @@ class PurviewScanningClient:
             auth_provider,
             transport=transport,
             trust_env=True,
+            logical_target_endpoint=normalized,
         )
 
     def _configure(
@@ -183,10 +192,12 @@ class PurviewScanningClient:
         *,
         transport: httpx.BaseTransport | None,
         trust_env: bool,
+        logical_target_endpoint: str,
     ) -> None:
         self._auth_provider = auth_provider
         self._origin = origin
         self._base_url = origin.canonical_base_url
+        self._logical_target_endpoint = logical_target_endpoint
         self._http = httpx.Client(
             transport=transport,
             timeout=DEFAULT_TIMEOUT,
@@ -201,13 +212,17 @@ class PurviewScanningClient:
         base_url: str,
         auth_provider: PurviewAuthorizationProvider,
         *,
+        logical_target_endpoint: str,
         transport: httpx.BaseTransport | None = None,
     ) -> PurviewScanningClient:
         """Package-private loopback HTTP seam (literal loopback IP only).
 
         Not exported from ``scanning.__all__``. Used by offline contract tests.
         Does not call the public constructor (which always requires HTTPS).
+        ``logical_target_endpoint`` is the HTTPS Purview target used for apply
+        target-context checks; transport remains loopback HTTP only.
         """
+        normalized_logical = normalize_endpoint(logical_target_endpoint)
         origin = origin_from_loopback_http_base_url(base_url)
         client = cls.__new__(cls)
         client._configure(
@@ -215,6 +230,7 @@ class PurviewScanningClient:
             auth_provider,
             transport=transport,
             trust_env=False,
+            logical_target_endpoint=normalized_logical,
         )
         return client
 
@@ -244,6 +260,11 @@ class PurviewScanningClient:
     @property
     def base_url(self) -> str:
         return self._base_url
+
+    @property
+    def target_endpoint(self) -> str:
+        """Logical HTTPS Purview target bound to this client (not transport origin)."""
+        return self._logical_target_endpoint
 
     def _authorization_header(self) -> str:
         return self._auth_provider.acquire_authorization_header()
@@ -379,8 +400,13 @@ class PurviewScanningClient:
         self,
         name: str,
         payload: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Internal create-or-replace primitive (not automatic apply)."""
+    ) -> DataSourceWriteReceipt:
+        """Internal create-or-replace primitive (not automatic apply).
+
+        Returns a sanitized write receipt when HTTP 200/201 is received. Response
+        body is intentionally not required for confirmed-write accounting and is
+        never returned to callers.
+        """
         validated = validate_data_source_name(name)
         body = _serialize_json_body(payload)
         url = self._data_sources_url(validated)
@@ -403,5 +429,5 @@ class PurviewScanningClient:
                 method="PUT",
                 url=url,
             )
-        data = _parse_json_object(response, operation="create_or_replace_data_source")
-        return _defensive_snapshot(data)
+        # Confirmed write at HTTP success; do not depend on body parse for accounting.
+        return DataSourceWriteReceipt(name=validated, status_code=response.status_code)

@@ -239,7 +239,8 @@ def test_create_or_replace_canonical_json_and_status() -> None:
     }
     with _client(handler) as client:
         result = client._create_or_replace_data_source("myDataSource", payload)
-    assert result["name"] == "myDataSource"
+    assert result.name == "myDataSource"
+    assert result.status_code == 201
     expected = json.dumps(
         payload,
         sort_keys=True,
@@ -248,6 +249,19 @@ def test_create_or_replace_canonical_json_and_status() -> None:
         allow_nan=False,
     ).encode("utf-8")
     assert bodies[0] == expected
+
+
+def test_create_or_replace_confirmed_write_ignores_invalid_json_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=b"not-json", headers={"Content-Type": "application/json"}
+        )
+
+    payload = {"kind": "AzureStorage"}
+    with _client(handler) as client:
+        receipt = client._create_or_replace_data_source("myDataSource", payload)
+    assert receipt.status_code == 200
+    assert receipt.name == "myDataSource"
 
 
 def _assert_sanitized_public_error(error: BaseException) -> None:
@@ -416,12 +430,14 @@ def test_loopback_seam_sets_trust_env_false() -> None:
     client = PurviewScanningClient._from_loopback_base_url(
         "http://127.0.0.1:8123",
         _provider(),
+        logical_target_endpoint="https://account.purview.azure.com",
         transport=httpx.MockTransport(handler),
     )
     try:
         assert client.trust_env is False
         assert client.follow_redirects is False
         assert client.base_url == "http://127.0.0.1:8123"
+        assert client.target_endpoint == "https://account.purview.azure.com"
         client.list_data_sources()
     finally:
         client.close()
