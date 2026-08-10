@@ -1,0 +1,13 @@
+apiVersion: purview-governance-config/v1
+target:
+  endpoint: https://account.purview.azure.com
+authentication:
+  strategy: defaultAzureCredential
+resources:
+  - type: dataSource
+    name: example-source
+    kind: AzureStorage
+    properties:
+      endpoint: https://example.blob.core.windows.net/
+      collection:
+        referenceName: root

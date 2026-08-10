@@ -1,6 +1,11 @@
 """Microsoft Purview Scanning Data Plane client foundation."""
 
-from purview_governance.scanning.client import DataSourceListResult, PurviewScanningClient
+from purview_governance.scanning.client import (
+    DataSourceListResult,
+    PurviewScanningClient,
+    ScanListResult,
+    ScanRuleSetListResult,
+)
 from purview_governance.scanning.constants import SCANNING_API_VERSION
 from purview_governance.scanning.errors import (
     PurviewClientError,
@@ -25,4 +30,6 @@ __all__ = [
     "PurviewResponseError",
     "PurviewScanningClient",
     "PurviewTimeoutError",
+    "ScanListResult",
+    "ScanRuleSetListResult",
 ]

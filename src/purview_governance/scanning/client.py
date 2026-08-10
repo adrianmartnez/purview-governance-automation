@@ -26,7 +26,11 @@ from purview_governance.scanning.errors import (
     PurviewResponseError,
     PurviewTimeoutError,
 )
-from purview_governance.scanning.names import validate_data_source_name
+from purview_governance.scanning.names import (
+    validate_data_source_name,
+    validate_scan_name,
+    validate_scan_ruleset_name,
+)
 from purview_governance.scanning.origin import (
     EndpointOrigin,
     origin_from_https_endpoint,
@@ -35,6 +39,7 @@ from purview_governance.scanning.origin import (
 )
 
 _DATA_SOURCES_PATH = "/scan/datasources"
+_SCAN_RULESETS_PATH = "/scan/scanrulesets"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +50,28 @@ class DataSourceListResult:
     Remote ``count`` fields are validated per page but never summed or used for
     pagination decisions.
     """
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class ScanListResult:
+    """Aggregated Scan list snapshot for one data source."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class ScanRuleSetListResult:
+    """Aggregated Custom Scan Rule Set list snapshot."""
 
     items: tuple[dict[str, Any], ...]
 
@@ -274,6 +301,60 @@ class PurviewScanningClient:
         query = urlencode({"api-version": SCANNING_API_VERSION})
         return f"{self._base_url}{path}?{query}"
 
+    def _scans_url(self, data_source_name: str, scan_name: str | None = None) -> str:
+        base = f"{_DATA_SOURCES_PATH}/{data_source_name}/scans"
+        path = base if scan_name is None else f"{base}/{scan_name}"
+        query = urlencode({"api-version": SCANNING_API_VERSION})
+        return f"{self._base_url}{path}?{query}"
+
+    def _scan_rulesets_url(self, name: str | None = None) -> str:
+        path = _SCAN_RULESETS_PATH if name is None else f"{_SCAN_RULESETS_PATH}/{name}"
+        query = urlencode({"api-version": SCANNING_API_VERSION})
+        return f"{self._base_url}{path}?{query}"
+
+    def _list_paginated(self, *, initial_url: str, operation: str) -> tuple[dict[str, Any], ...]:
+        url = initial_url
+        aggregated: list[dict[str, Any]] = []
+        seen_links: set[str] = set()
+        pages = 0
+
+        while True:
+            pages += 1
+            if pages > MAX_LIST_PAGES:
+                raise PurviewPaginationError(
+                    "scanning.pagination_limit_exceeded",
+                    "list pagination exceeded the maximum number of pages",
+                )
+
+            headers = {
+                "Authorization": self._authorization_header(),
+                "Accept": "application/json",
+            }
+            response = self._send("GET", url, operation=operation, headers=headers)
+            if response.status_code != 200:
+                self._raise_http_error(
+                    response,
+                    operation=operation,
+                    method="GET",
+                    url=url,
+                )
+
+            data = _parse_json_object(response, operation=operation)
+            items, next_link = _validate_list_page(data)
+            aggregated.extend(items)
+
+            if next_link is None:
+                break
+            if next_link in seen_links:
+                raise PurviewPaginationError(
+                    "scanning.pagination_loop",
+                    "list pagination encountered a repeated nextLink",
+                )
+            seen_links.add(next_link)
+            url = validate_absolute_same_origin_next_link(next_link, self._origin)
+
+        return tuple(aggregated)
+
     def _safe_path(self, url: str) -> str:
         parts = urlsplit(url)
         return parts.path or "/"
@@ -334,48 +415,12 @@ class PurviewScanningClient:
 
     def list_data_sources(self) -> DataSourceListResult:
         """List Data Sources, following same-origin absolute ``nextLink`` values."""
-        url = self._data_sources_url()
-        aggregated: list[dict[str, Any]] = []
-        seen_links: set[str] = set()
-        pages = 0
-
-        while True:
-            pages += 1
-            if pages > MAX_LIST_PAGES:
-                raise PurviewPaginationError(
-                    "scanning.pagination_limit_exceeded",
-                    "list pagination exceeded the maximum number of pages",
-                )
-
-            headers = {
-                "Authorization": self._authorization_header(),
-                "Accept": "application/json",
-            }
-            response = self._send("GET", url, operation="list_data_sources", headers=headers)
-            if response.status_code != 200:
-                self._raise_http_error(
-                    response,
-                    operation="list_data_sources",
-                    method="GET",
-                    url=url,
-                )
-
-            data = _parse_json_object(response, operation="list_data_sources")
-            items, next_link = _validate_list_page(data)
-            aggregated.extend(items)
-
-            if next_link is None:
-                break
-            if next_link in seen_links:
-                raise PurviewPaginationError(
-                    "scanning.pagination_loop",
-                    "list pagination encountered a repeated nextLink",
-                )
-            seen_links.add(next_link)
-            # Validate before any follow request (no Authorization on reject).
-            url = validate_absolute_same_origin_next_link(next_link, self._origin)
-
-        return DataSourceListResult(items=tuple(aggregated))
+        return DataSourceListResult(
+            items=self._list_paginated(
+                initial_url=self._data_sources_url(),
+                operation="list_data_sources",
+            )
+        )
 
     def get_data_source(self, name: str) -> dict[str, Any]:
         """Get a single Data Source by name (defensive snapshot)."""
@@ -394,6 +439,64 @@ class PurviewScanningClient:
                 url=url,
             )
         data = _parse_json_object(response, operation="get_data_source")
+        return _defensive_snapshot(data)
+
+    def list_scans(self, data_source_name: str) -> ScanListResult:
+        """List Scans for a Data Source (Custom/System inventory under that parent)."""
+        parent = validate_data_source_name(data_source_name)
+        return ScanListResult(
+            items=self._list_paginated(
+                initial_url=self._scans_url(parent),
+                operation="list_scans",
+            )
+        )
+
+    def get_scan(self, data_source_name: str, scan_name: str) -> dict[str, Any]:
+        """Get a single Scan by parent Data Source and scan name."""
+        parent = validate_data_source_name(data_source_name)
+        validated = validate_scan_name(scan_name)
+        url = self._scans_url(parent, validated)
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        response = self._send("GET", url, operation="get_scan", headers=headers)
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="get_scan",
+                method="GET",
+                url=url,
+            )
+        data = _parse_json_object(response, operation="get_scan")
+        return _defensive_snapshot(data)
+
+    def list_scan_rule_sets(self) -> ScanRuleSetListResult:
+        """List Custom Scan Rule Sets via ``/scan/scanrulesets`` only."""
+        return ScanRuleSetListResult(
+            items=self._list_paginated(
+                initial_url=self._scan_rulesets_url(),
+                operation="list_scan_rule_sets",
+            )
+        )
+
+    def get_scan_rule_set(self, name: str) -> dict[str, Any]:
+        """Get a Custom Scan Rule Set by name."""
+        validated = validate_scan_ruleset_name(name)
+        url = self._scan_rulesets_url(validated)
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        response = self._send("GET", url, operation="get_scan_rule_set", headers=headers)
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="get_scan_rule_set",
+                method="GET",
+                url=url,
+            )
+        data = _parse_json_object(response, operation="get_scan_rule_set")
         return _defensive_snapshot(data)
 
     def _create_or_replace_data_source(
