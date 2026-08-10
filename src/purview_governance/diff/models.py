@@ -8,6 +8,7 @@ from typing import Any, Literal
 from purview_governance.remote_state.canonical import dumps_canonical
 
 DiffOutcome = Literal["create", "replace", "no-op", "remote-only", "blocked"]
+DiffResourceType = Literal["dataSource", "scan", "scanRuleSet"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,17 +30,21 @@ class DiffReason:
 @dataclass(frozen=True, slots=True)
 class DiffItem:
     name: str
-    resource_type: Literal["dataSource"]
+    resource_type: DiffResourceType
     outcome: DiffOutcome
     reasons: tuple[DiffReason, ...]
+    data_source_name: str | None = None
 
     def to_document(self) -> dict[str, Any]:
-        return {
+        doc: dict[str, Any] = {
             "name": self.name,
             "type": self.resource_type,
             "outcome": self.outcome,
             "reasons": [reason.to_document() for reason in self.reasons],
         }
+        if self.resource_type == "scan":
+            doc["dataSourceName"] = self.data_source_name
+        return doc
 
 
 @dataclass(frozen=True, slots=True)

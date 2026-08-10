@@ -1,8 +1,8 @@
-"""Frozen normalized remote-state models for purview-remote-state/v1."""
+"""Frozen normalized remote-state models for purview-remote-state/v1 and /v2."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from purview_governance.data_source_endpoint import validate_data_source_endpoint
@@ -13,6 +13,7 @@ from purview_governance.remote_state.canonical import (
 
 SUPPORTED_KIND = "AzureStorage"
 REMOTE_STATE_API_VERSION = "purview-remote-state/v1"
+REMOTE_STATE_API_VERSION_V2 = "purview-remote-state/v2"
 
 CreationTypeValue = Literal["Manual", "AutoNative", "AutoManaged"]
 MovingStateTextual = Literal["Active", "Moving", "Failed"]
@@ -156,5 +157,194 @@ def build_remote_state(
     return RemoteState(
         data_sources=sorted_ds,
         uninterpreted_data_sources=sorted_ui,
+        material_state_identity=identity,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ScanObservedProperties:
+    """Observational Scan identifiers (typed; excluded from desired comparison)."""
+
+    observed_id: str | None = None
+    scan_id: str | None = None
+
+    def to_document(self) -> dict[str, str]:
+        doc: dict[str, str] = {}
+        if self.observed_id is not None:
+            doc["id"] = self.observed_id
+        if self.scan_id is not None:
+            doc["scanId"] = self.scan_id
+        return doc
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedScan:
+    """Normalized supported AzureStorageMsi remote Scan (no raw body)."""
+
+    name: str
+    data_source_name: str
+    kind: Literal["AzureStorageMsi"]
+    creation_type: CreationTypeValue
+    scan_ruleset_name: str
+    scan_ruleset_type: Literal["System", "Custom"]
+    collection_reference_name: str
+    unsupported_configurable_fields: tuple[str, ...] = ()
+    observed: ScanObservedProperties = field(default_factory=ScanObservedProperties)
+
+    def to_document(self) -> dict[str, Any]:
+        doc: dict[str, Any] = {
+            "type": "scan",
+            "name": self.name,
+            "dataSourceName": self.data_source_name,
+            "kind": self.kind,
+            "creationType": self.creation_type,
+            "properties": {
+                "scanRulesetName": self.scan_ruleset_name,
+                "scanRulesetType": self.scan_ruleset_type,
+                "collection": {"referenceName": self.collection_reference_name},
+            },
+            "observedProperties": self.observed.to_document(),
+        }
+        if self.unsupported_configurable_fields:
+            doc["unsupportedConfigurableFields"] = list(self.unsupported_configurable_fields)
+        return doc
+
+
+@dataclass(frozen=True, slots=True)
+class UninterpretedScan:
+    """Accounted remote Scan that cannot be safely normalized as AzureStorageMsi."""
+
+    name: str
+    data_source_name: str
+    kind: str
+    reason_code: str
+
+    def to_document(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "dataSourceName": self.data_source_name,
+            "kind": self.kind,
+            "reasonCode": self.reason_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedScanRuleSet:
+    """Normalized Custom AzureStorage remote Scan Rule Set (no raw body)."""
+
+    name: str
+    kind: Literal["AzureStorage"]
+    scan_ruleset_type: Literal["Custom"]
+    file_extensions: tuple[str, ...]
+    excluded_system_classifications: tuple[str, ...]
+    included_custom_classification_rule_names: tuple[str, ...]
+    description: str | None = None
+
+    def to_document(self) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "scanningRule": {"fileExtensions": list(self.file_extensions)},
+            "excludedSystemClassifications": list(self.excluded_system_classifications),
+            "includedCustomClassificationRuleNames": list(
+                self.included_custom_classification_rule_names
+            ),
+        }
+        if self.description is not None:
+            properties["description"] = self.description
+        return {
+            "type": "scanRuleSet",
+            "name": self.name,
+            "kind": self.kind,
+            "scanRulesetType": self.scan_ruleset_type,
+            "properties": properties,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class UninterpretedScanRuleSet:
+    """Accounted remote Scan Rule Set that cannot be safely normalized."""
+
+    name: str
+    kind: str
+    reason_code: str
+
+    def to_document(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "reasonCode": self.reason_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteStateV2:
+    """Versioned purview-remote-state/v2 artifact model."""
+
+    data_sources: tuple[NormalizedDataSource, ...]
+    uninterpreted_data_sources: tuple[UninterpretedDataSource, ...]
+    scans: tuple[NormalizedScan, ...]
+    uninterpreted_scans: tuple[UninterpretedScan, ...]
+    scan_rule_sets: tuple[NormalizedScanRuleSet, ...]
+    uninterpreted_scan_rule_sets: tuple[UninterpretedScanRuleSet, ...]
+    material_state_identity: str
+
+    def identity_document(self) -> dict[str, Any]:
+        """Document hashed for materialStateIdentity (excludes the identity field)."""
+        return {
+            "apiVersion": REMOTE_STATE_API_VERSION_V2,
+            "dataSources": [item.to_document() for item in self.data_sources],
+            "uninterpretedDataSources": [
+                item.to_document() for item in self.uninterpreted_data_sources
+            ],
+            "scans": [item.to_document() for item in self.scans],
+            "uninterpretedScans": [item.to_document() for item in self.uninterpreted_scans],
+            "scanRuleSets": [item.to_document() for item in self.scan_rule_sets],
+            "uninterpretedScanRuleSets": [
+                item.to_document() for item in self.uninterpreted_scan_rule_sets
+            ],
+        }
+
+    def to_document(self) -> dict[str, Any]:
+        doc = self.identity_document()
+        doc["materialStateIdentity"] = self.material_state_identity
+        return doc
+
+    def to_canonical_json(self) -> str:
+        return dumps_canonical(self.to_document())
+
+
+def build_remote_state_v2(
+    data_sources: tuple[NormalizedDataSource, ...],
+    uninterpreted_data_sources: tuple[UninterpretedDataSource, ...],
+    scans: tuple[NormalizedScan, ...],
+    uninterpreted_scans: tuple[UninterpretedScan, ...],
+    scan_rule_sets: tuple[NormalizedScanRuleSet, ...],
+    uninterpreted_scan_rule_sets: tuple[UninterpretedScanRuleSet, ...],
+) -> RemoteStateV2:
+    """Build RemoteStateV2 with deterministic identity from sorted inputs."""
+    sorted_ds = tuple(sorted(data_sources, key=lambda item: item.name))
+    sorted_ui = tuple(sorted(uninterpreted_data_sources, key=lambda item: item.name))
+    sorted_scans = tuple(sorted(scans, key=lambda item: (item.data_source_name, item.name)))
+    sorted_ui_scans = tuple(
+        sorted(uninterpreted_scans, key=lambda item: (item.data_source_name, item.name))
+    )
+    sorted_srs = tuple(sorted(scan_rule_sets, key=lambda item: item.name))
+    sorted_ui_srs = tuple(sorted(uninterpreted_scan_rule_sets, key=lambda item: item.name))
+    provisional = RemoteStateV2(
+        data_sources=sorted_ds,
+        uninterpreted_data_sources=sorted_ui,
+        scans=sorted_scans,
+        uninterpreted_scans=sorted_ui_scans,
+        scan_rule_sets=sorted_srs,
+        uninterpreted_scan_rule_sets=sorted_ui_srs,
+        material_state_identity="",
+    )
+    identity = compute_material_state_identity(provisional.identity_document())
+    return RemoteStateV2(
+        data_sources=sorted_ds,
+        uninterpreted_data_sources=sorted_ui,
+        scans=sorted_scans,
+        uninterpreted_scans=sorted_ui_scans,
+        scan_rule_sets=sorted_srs,
+        uninterpreted_scan_rule_sets=sorted_ui_srs,
         material_state_identity=identity,
     )
