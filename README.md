@@ -1,5 +1,7 @@
 # purview-governance-automation
 
+[![CI](https://github.com/fgnfmackk/purview-governance-automation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fgnfmackk/purview-governance-automation/actions/workflows/ci.yml)
+
 Microsoft Purview governance automation in Python for deterministic Data Map
 Data Source planning and safe explicit apply workflows.
 
