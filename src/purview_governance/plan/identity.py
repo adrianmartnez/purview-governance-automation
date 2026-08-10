@@ -9,7 +9,9 @@ from typing import Any
 from purview_governance.remote_state.canonical import dumps_canonical
 
 PLAN_API_VERSION = "purview-governance-plan/v1"
+PLAN_API_VERSION_V2 = "purview-governance-plan/v2"
 CONFIGURATION_API_VERSION = "purview-governance-config/v1"
+CONFIGURATION_API_VERSION_V2 = "purview-governance-config/v2"
 
 HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -51,11 +53,12 @@ def compute_material_configuration_identity(
     *,
     target_context_identity: str,
     desired_state_identity: str,
+    configuration_api_version: str = CONFIGURATION_API_VERSION,
 ) -> str:
     return compute_domain_identity(
         {
             "identityType": MATERIAL_CONFIGURATION_IDENTITY_TYPE,
-            "configurationApiVersion": CONFIGURATION_API_VERSION,
+            "configurationApiVersion": configuration_api_version,
             "desiredStateIdentity": desired_state_identity,
             "targetContextIdentity": target_context_identity,
         }

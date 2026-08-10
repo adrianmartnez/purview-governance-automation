@@ -15,7 +15,7 @@ from purview_governance.apply.validation import validate_result_document_for_ser
 from purview_governance.auth.errors import AuthenticationError
 from purview_governance.config.normalize import normalize_endpoint
 from purview_governance.plan.errors import PlanError
-from purview_governance.plan.identity import compute_target_context_identity
+from purview_governance.plan.identity import PLAN_API_VERSION, compute_target_context_identity
 from purview_governance.plan.models import GovernancePlan
 from purview_governance.plan.validation import validate_plan_document_for_serialization
 from purview_governance.remote_state.errors import RemoteStateError
@@ -39,6 +39,7 @@ def execute_governance_plan(
 
     Public ``GovernancePlan`` objects are treated as untrusted and revalidated.
     Mutation requires ``mode=ExecutionMode.APPLY``.
+    Apply supports ``purview-governance-plan/v1`` only; plan/v2 is rejected before network.
     """
     _revalidate_plan(plan)
     mode = _coerce_mode(mode)
@@ -189,9 +190,22 @@ def _revalidate_plan(plan: object) -> None:
             "apply.invalid_plan",
             "plan must be a GovernancePlan instance",
         )
+    if plan.api_version != PLAN_API_VERSION:
+        raise ApplyValidationError(
+            "apply.unsupported_plan_version",
+            "apply supports purview-governance-plan/v1 only",
+        )
     failed = False
     try:
-        validate_plan_document_for_serialization(plan.to_document())
+        document = plan.to_document()
+        if document.get("apiVersion") != PLAN_API_VERSION:
+            raise ApplyValidationError(
+                "apply.unsupported_plan_version",
+                "apply supports purview-governance-plan/v1 only",
+            )
+        validate_plan_document_for_serialization(document)
+    except ApplyValidationError:
+        raise
     except PlanError:
         failed = True
     except Exception:

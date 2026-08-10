@@ -9,9 +9,15 @@ from jsonschema import Draft202012Validator
 from purview_governance.remote_state.errors import RemoteStateError
 from purview_governance.remote_state.models import (
     NormalizedDataSource,
+    NormalizedScan,
+    NormalizedScanRuleSet,
     RemoteState,
+    RemoteStateV2,
     UninterpretedDataSource,
+    UninterpretedScan,
+    UninterpretedScanRuleSet,
     build_remote_state,
+    build_remote_state_v2,
 )
 from purview_governance.remote_state.normalize import (
     extract_list_item_name,
@@ -19,9 +25,31 @@ from purview_governance.remote_state.normalize import (
     reject_sensitive_keys,
 )
 from purview_governance.remote_state.policy import SUPPORTED_KIND
-from purview_governance.remote_state.schema import load_remote_state_v1_schema
-from purview_governance.scanning.client import DataSourceListResult
-from purview_governance.scanning.names import validate_data_source_name
+from purview_governance.remote_state.scan_normalize import (
+    extract_scan_list_item_name,
+    extract_scan_ruleset_list_item_name,
+    normalize_azure_storage_msi_scan_get,
+    normalize_custom_azure_storage_scan_ruleset_get,
+)
+from purview_governance.remote_state.scan_policy import (
+    SUPPORTED_SCAN_KIND,
+    SUPPORTED_SCAN_RULESET_KIND,
+    SUPPORTED_SCAN_RULESET_TYPE,
+)
+from purview_governance.remote_state.schema import (
+    load_remote_state_v1_schema,
+    load_remote_state_v2_schema,
+)
+from purview_governance.scanning.client import (
+    DataSourceListResult,
+    ScanListResult,
+    ScanRuleSetListResult,
+)
+from purview_governance.scanning.names import (
+    validate_data_source_name,
+    validate_scan_name,
+    validate_scan_ruleset_name,
+)
 
 
 class DataSourceReadClient(Protocol):
@@ -32,8 +60,23 @@ class DataSourceReadClient(Protocol):
     def get_data_source(self, name: str) -> dict[str, Any]: ...
 
 
-def _validate_artifact(document: dict[str, Any]) -> None:
-    schema = load_remote_state_v1_schema()
+class ScanningReadClient(Protocol):
+    """Read-only seam for remote-state/v2 capture (DS + Scans + Custom SRS)."""
+
+    def list_data_sources(self) -> DataSourceListResult: ...
+
+    def get_data_source(self, name: str) -> dict[str, Any]: ...
+
+    def list_scans(self, data_source_name: str) -> ScanListResult: ...
+
+    def get_scan(self, data_source_name: str, scan_name: str) -> dict[str, Any]: ...
+
+    def list_scan_rule_sets(self) -> ScanRuleSetListResult: ...
+
+    def get_scan_rule_set(self, name: str) -> dict[str, Any]: ...
+
+
+def _validate_artifact(document: dict[str, Any], *, schema: dict[str, Any]) -> None:
     validator = Draft202012Validator(schema)
     errors = sorted(validator.iter_errors(document), key=lambda e: list(e.absolute_path))
     if errors:
@@ -43,11 +86,9 @@ def _validate_artifact(document: dict[str, Any]) -> None:
         )
 
 
-def capture_remote_state(client: DataSourceReadClient) -> RemoteState:
-    """Capture purview-remote-state/v1 via List discovery and authoritative Get.
-
-    Read-only: never calls create-or-replace / PUT / delete.
-    """
+def _capture_data_sources(
+    client: DataSourceReadClient,
+) -> tuple[list[NormalizedDataSource], list[UninterpretedDataSource]]:
     listed = client.list_data_sources()
     names: list[str] = []
     seen: set[str] = set()
@@ -117,9 +158,237 @@ def capture_remote_state(client: DataSourceReadClient) -> RemoteState:
 
         normalized.append(normalize_azure_storage_get(body, requested_name=name))
 
+    return normalized, uninterpreted
+
+
+def capture_remote_state(client: DataSourceReadClient) -> RemoteState:
+    """Capture purview-remote-state/v1 via List discovery and authoritative Get.
+
+    Read-only: never calls create-or-replace / PUT / delete.
+    """
+    normalized, uninterpreted = _capture_data_sources(client)
     state = build_remote_state(tuple(normalized), tuple(uninterpreted))
     try:
-        _validate_artifact(state.to_document())
+        _validate_artifact(state.to_document(), schema=load_remote_state_v1_schema())
+    except RemoteStateError:
+        raise
+    except Exception:
+        raise RemoteStateError(
+            "remote_state.artifact_serialization_failed",
+            "failed to validate remote-state artifact",
+        ) from None
+    return state
+
+
+def _capture_scans_for_supported_parents(
+    client: ScanningReadClient,
+    supported_parents: list[NormalizedDataSource],
+) -> tuple[list[NormalizedScan], list[UninterpretedScan]]:
+    normalized: list[NormalizedScan] = []
+    uninterpreted: list[UninterpretedScan] = []
+
+    for parent in supported_parents:
+        parent_name = parent.name
+        listed = client.list_scans(parent_name)
+        scan_names: list[str] = []
+        seen: set[str] = set()
+        for index, item in enumerate(listed.items):
+            scan_name = extract_scan_list_item_name(item, index=index)
+            if scan_name in seen:
+                raise RemoteStateError(
+                    "remote_state.duplicate_name",
+                    "duplicate Scan name in list results",
+                    path=f"/value/{index}/name",
+                )
+            seen.add(scan_name)
+            scan_names.append(scan_name)
+
+        scan_names.sort()
+        for scan_name in scan_names:
+            validate_scan_name(scan_name)
+            body = client.get_scan(parent_name, scan_name)
+            if not isinstance(body, dict):
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "GET response must be a JSON object",
+                )
+            reject_sensitive_keys(body)
+
+            kind = body.get("kind")
+            if kind is None:
+                raise RemoteStateError(
+                    "remote_state.missing_kind",
+                    "GET response is missing kind",
+                    path="/kind",
+                )
+            if not isinstance(kind, str):
+                raise RemoteStateError(
+                    "remote_state.invalid_kind",
+                    "kind must be a string",
+                    path="/kind",
+                )
+            if kind != SUPPORTED_SCAN_KIND:
+                remote_name = body.get("name")
+                if remote_name is None:
+                    raise RemoteStateError(
+                        "remote_state.identity_mismatch",
+                        "GET response is missing name",
+                        path="/name",
+                    )
+                if not isinstance(remote_name, str) or remote_name != scan_name:
+                    raise RemoteStateError(
+                        "remote_state.identity_mismatch",
+                        "GET response name does not match the requested scanName",
+                        path="/name",
+                    )
+                uninterpreted.append(
+                    UninterpretedScan(
+                        name=scan_name,
+                        data_source_name=parent_name,
+                        kind=kind,
+                        reason_code="remote_state.unsupported_kind",
+                    )
+                )
+                continue
+
+            normalized.append(
+                normalize_azure_storage_msi_scan_get(
+                    body,
+                    requested_data_source_name=parent_name,
+                    requested_scan_name=scan_name,
+                )
+            )
+
+    return normalized, uninterpreted
+
+
+def _capture_scan_rule_sets(
+    client: ScanningReadClient,
+) -> tuple[list[NormalizedScanRuleSet], list[UninterpretedScanRuleSet]]:
+    listed = client.list_scan_rule_sets()
+    names: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(listed.items):
+        name = extract_scan_ruleset_list_item_name(item, index=index)
+        if name in seen:
+            raise RemoteStateError(
+                "remote_state.duplicate_name",
+                "duplicate Scan Rule Set name in list results",
+                path=f"/value/{index}/name",
+            )
+        seen.add(name)
+        names.append(name)
+
+    names.sort()
+    normalized: list[NormalizedScanRuleSet] = []
+    uninterpreted: list[UninterpretedScanRuleSet] = []
+
+    for name in names:
+        validate_scan_ruleset_name(name)
+        body = client.get_scan_rule_set(name)
+        if not isinstance(body, dict):
+            raise RemoteStateError(
+                "remote_state.invalid_shape",
+                "GET response must be a JSON object",
+            )
+        reject_sensitive_keys(body)
+
+        kind = body.get("kind")
+        if kind is None:
+            raise RemoteStateError(
+                "remote_state.missing_kind",
+                "GET response is missing kind",
+                path="/kind",
+            )
+        if not isinstance(kind, str):
+            raise RemoteStateError(
+                "remote_state.invalid_kind",
+                "kind must be a string",
+                path="/kind",
+            )
+
+        scan_ruleset_type = body.get("scanRulesetType")
+        supported = kind == SUPPORTED_SCAN_RULESET_KIND and (
+            scan_ruleset_type is None or scan_ruleset_type == SUPPORTED_SCAN_RULESET_TYPE
+        )
+        if not supported:
+            remote_name = body.get("name")
+            if remote_name is None:
+                raise RemoteStateError(
+                    "remote_state.identity_mismatch",
+                    "GET response is missing name",
+                    path="/name",
+                )
+            if not isinstance(remote_name, str) or remote_name != name:
+                raise RemoteStateError(
+                    "remote_state.identity_mismatch",
+                    "GET response name does not match the requested scanRulesetName",
+                    path="/name",
+                )
+            reason = "remote_state.unsupported_kind"
+            if (
+                kind == SUPPORTED_SCAN_RULESET_KIND
+                and scan_ruleset_type is not None
+                and scan_ruleset_type != SUPPORTED_SCAN_RULESET_TYPE
+            ):
+                reason = "remote_state.unsupported_scan_ruleset_type"
+            uninterpreted.append(
+                UninterpretedScanRuleSet(
+                    name=name,
+                    kind=kind,
+                    reason_code=reason,
+                )
+            )
+            continue
+
+        try:
+            normalized.append(
+                normalize_custom_azure_storage_scan_ruleset_get(
+                    body,
+                    requested_name=name,
+                )
+            )
+        except RemoteStateError as exc:
+            if exc.code in {
+                "remote_state.unsupported_kind",
+                "remote_state.unsupported_scan_ruleset_type",
+            }:
+                uninterpreted.append(
+                    UninterpretedScanRuleSet(
+                        name=name,
+                        kind=kind,
+                        reason_code=exc.code,
+                    )
+                )
+                continue
+            raise
+
+    return normalized, uninterpreted
+
+
+def capture_remote_state_v2(client: ScanningReadClient) -> RemoteStateV2:
+    """Capture purview-remote-state/v2 (DS + Scans under supported parents + Custom SRS).
+
+    Read-only: never calls create-or-replace / PUT / delete.
+    Scans are listed/gotten only for parents already normalized as AzureStorage.
+    """
+    data_sources, uninterpreted_data_sources = _capture_data_sources(client)
+    scans, uninterpreted_scans = _capture_scans_for_supported_parents(
+        client,
+        data_sources,
+    )
+    scan_rule_sets, uninterpreted_scan_rule_sets = _capture_scan_rule_sets(client)
+
+    state = build_remote_state_v2(
+        tuple(data_sources),
+        tuple(uninterpreted_data_sources),
+        tuple(scans),
+        tuple(uninterpreted_scans),
+        tuple(scan_rule_sets),
+        tuple(uninterpreted_scan_rule_sets),
+    )
+    try:
+        _validate_artifact(state.to_document(), schema=load_remote_state_v2_schema())
     except RemoteStateError:
         raise
     except Exception:

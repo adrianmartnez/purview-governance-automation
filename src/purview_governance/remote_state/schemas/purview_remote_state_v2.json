@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-remote-state/v2",
+  "title": "purview-remote-state v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "dataSources",
+    "uninterpretedDataSources",
+    "scans",
+    "uninterpretedScans",
+    "scanRuleSets",
+    "uninterpretedScanRuleSets",
+    "materialStateIdentity"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-remote-state/v2"
+    },
+    "dataSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "name",
+          "kind",
+          "creationType",
+          "properties",
+          "observedProperties"
+        ],
+        "properties": {
+          "type": { "const": "dataSource" },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "const": "AzureStorage" },
+          "creationType": {
+            "type": "string",
+            "enum": ["Manual", "AutoNative", "AutoManaged"]
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "endpoint",
+              "collection",
+              "dataSourceCollectionMovingState"
+            ],
+            "properties": {
+              "endpoint": { "type": "string", "minLength": 1 },
+              "collection": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["referenceName"],
+                "properties": {
+                  "referenceName": { "type": "string", "minLength": 1 }
+                }
+              },
+              "dataSourceCollectionMovingState": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": ["Active", "Moving", "Failed"]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "raw"],
+                    "properties": {
+                      "kind": { "const": "unknownLegacyValue" },
+                      "raw": { "const": "0" }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "observedProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "resourceGroup": { "type": "string" },
+              "subscriptionId": { "type": "string" },
+              "location": { "type": "string" },
+              "resourceName": { "type": "string" },
+              "resourceId": { "type": "string" },
+              "dataUseGovernance": {
+                "type": "string",
+                "enum": [
+                  "Disabled",
+                  "DisabledByAnotherAccount",
+                  "Enabled",
+                  "EnabledAtAncestorScope"
+                ]
+              },
+              "id": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "uninterpretedDataSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "reasonCode"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "type": "string", "minLength": 1 },
+          "reasonCode": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "scans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "name",
+          "dataSourceName",
+          "kind",
+          "creationType",
+          "properties",
+          "observedProperties"
+        ],
+        "properties": {
+          "type": { "const": "scan" },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "dataSourceName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "const": "AzureStorageMsi" },
+          "creationType": {
+            "type": "string",
+            "enum": ["Manual", "AutoNative", "AutoManaged"]
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scanRulesetName",
+              "scanRulesetType",
+              "collection"
+            ],
+            "properties": {
+              "scanRulesetName": { "type": "string", "minLength": 1 },
+              "scanRulesetType": {
+                "type": "string",
+                "enum": ["System", "Custom"]
+              },
+              "collection": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["referenceName"],
+                "properties": {
+                  "referenceName": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          },
+          "observedProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "scanId": { "type": "string" }
+            }
+          },
+          "unsupportedConfigurableFields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "valueIdentity"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "valueIdentity": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "uninterpretedScans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "dataSourceName", "kind", "reasonCode"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "dataSourceName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "type": "string", "minLength": 1 },
+          "reasonCode": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "scanRuleSets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "name",
+          "kind",
+          "scanRulesetType",
+          "properties"
+        ],
+        "properties": {
+          "type": { "const": "scanRuleSet" },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "const": "AzureStorage" },
+          "scanRulesetType": { "const": "Custom" },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scanningRule",
+              "excludedSystemClassifications",
+              "includedCustomClassificationRuleNames"
+            ],
+            "properties": {
+              "scanningRule": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["fileExtensions"],
+                "properties": {
+                  "fileExtensions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "AVRO",
+                        "CSV",
+                        "DOC",
+                        "DOCM",
+                        "DOCX",
+                        "DOT",
+                        "Documents",
+                        "GZ",
+                        "JSON",
+                        "ODP",
+                        "ODS",
+                        "ODT",
+                        "ORC",
+                        "PARQUET",
+                        "PDF",
+                        "POT",
+                        "PPS",
+                        "PPSX",
+                        "PPT",
+                        "PPTM",
+                        "PPTX",
+                        "PSV",
+                        "SSV",
+                        "TSV",
+                        "TXT",
+                        "XLC",
+                        "XLS",
+                        "XLSB",
+                        "XLSM",
+                        "XLSX",
+                        "XLT",
+                        "XML"
+                      ]
+                    }
+                  }
+                }
+              },
+              "excludedSystemClassifications": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "includedCustomClassificationRuleNames": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "description": { "type": "string" }
+            }
+          },
+          "unsupportedConfigurableFields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "valueIdentity"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "valueIdentity": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "uninterpretedScanRuleSets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "reasonCode"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "type": "string", "minLength": 1 },
+          "reasonCode": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "materialStateIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

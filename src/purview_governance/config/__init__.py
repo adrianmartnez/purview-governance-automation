@@ -5,10 +5,12 @@ from purview_governance.config.models import (
     AuthenticationConfig,
     DataSourceResourceConfig,
     GovernanceConfig,
+    ScanResourceConfig,
+    ScanRuleSetResourceConfig,
     TargetConfig,
     to_canonical_json,
 )
-from purview_governance.config.schema import load_v1_schema
+from purview_governance.config.schema import load_v1_schema, load_v2_schema
 from purview_governance.config.service import (
     validate_config_dict,
     validate_config_file,
@@ -21,8 +23,11 @@ __all__ = [
     "ConfigValidationError",
     "DataSourceResourceConfig",
     "GovernanceConfig",
+    "ScanResourceConfig",
+    "ScanRuleSetResourceConfig",
     "TargetConfig",
     "load_v1_schema",
+    "load_v2_schema",
     "to_canonical_json",
     "validate_config_dict",
     "validate_config_file",

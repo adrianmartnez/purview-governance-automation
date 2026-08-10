@@ -14,7 +14,11 @@ from purview_governance.config.models import (
     AuthenticationConfig,
     DataSourceResourceConfig,
     GovernanceConfig,
+    GovernanceResourceConfig,
+    ScanResourceConfig,
+    ScanRuleSetResourceConfig,
     TargetConfig,
+    resource_sort_key,
 )
 from purview_governance.data_source_endpoint import (
     DataSourceEndpointError,
@@ -112,25 +116,7 @@ def normalize_endpoint(raw_endpoint: object) -> str:
     return urlunsplit(("https", netloc, "", "", ""))
 
 
-def _normalize_data_source_resource(
-    raw: object,
-    *,
-    index: int,
-) -> DataSourceResourceConfig:
-    path_base = ("resources", index)
-    if not isinstance(raw, dict):
-        raise ConfigValidationError(
-            (
-                ConfigDiagnostic(
-                    code="config.invalid_syntax",
-                    path=json_pointer(*path_base),
-                    message="resource must be an object",
-                ),
-            )
-        )
-    # Name constraints are enforced by the packaged JSON Schema (dataSourceName).
-    name = str(raw["name"])
-
+def _require_props(raw: dict[str, Any], *, path_base: tuple[object, ...]) -> dict[str, Any]:
     props = raw["properties"]
     if not isinstance(props, dict):
         raise ConfigValidationError(
@@ -142,6 +128,17 @@ def _normalize_data_source_resource(
                 ),
             )
         )
+    return props
+
+
+def _normalize_data_source_resource(
+    raw: dict[str, Any],
+    *,
+    index: int,
+) -> DataSourceResourceConfig:
+    path_base = ("resources", index)
+    name = str(raw["name"])
+    props = _require_props(raw, path_base=path_base)
     endpoint_raw = props["endpoint"]
     endpoint_failed = False
     endpoint: str | None = None
@@ -189,16 +186,217 @@ def _normalize_data_source_resource(
     )
 
 
+def _sorted_strings(values: object, *, path: tuple[object, ...]) -> tuple[str, ...]:
+    if not isinstance(values, list):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path),
+                    message="expected a string array",
+                ),
+            )
+        )
+    items: list[str] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path, index),
+                        message="array entries must be non-empty strings",
+                    ),
+                )
+            )
+        items.append(value.strip())
+    return tuple(sorted(items))
+
+
+def _sorted_file_extensions(values: object, *, path: tuple[object, ...]) -> tuple[str, ...]:
+    # Lazy import avoids config.normalize <-> scanning.client circular import.
+    from purview_governance.scanning.file_extensions import FILE_EXTENSIONS_TYPE
+
+    if not isinstance(values, list):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path),
+                    message="expected a string array",
+                ),
+            )
+        )
+    items: list[str] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path, index),
+                        message="array entries must be non-empty strings",
+                    ),
+                )
+            )
+        stripped = value.strip()
+        if stripped not in FILE_EXTENSIONS_TYPE:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_file_extension",
+                        path=json_pointer(*path, index),
+                        message=(
+                            f"file extension {stripped!r} is not a documented "
+                            "FileExtensionsType value"
+                        ),
+                    ),
+                )
+            )
+        items.append(stripped)
+    return tuple(sorted(items))
+
+
+def _normalize_scan_rule_set_resource(
+    raw: dict[str, Any],
+    *,
+    index: int,
+) -> ScanRuleSetResourceConfig:
+    path_base = ("resources", index)
+    props = _require_props(raw, path_base=path_base)
+    scanning_rule = props["scanningRule"]
+    if not isinstance(scanning_rule, dict):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "scanningRule"),
+                    message="scanningRule must be an object",
+                ),
+            )
+        )
+    description: str | None = None
+    if "description" in props:
+        raw_description = props["description"]
+        if not isinstance(raw_description, str):
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "properties", "description"),
+                        message="description must be a string",
+                    ),
+                )
+            )
+        description = raw_description
+    return ScanRuleSetResourceConfig(
+        name=str(raw["name"]),
+        kind="AzureStorage",
+        scan_ruleset_type="Custom",
+        file_extensions=_sorted_file_extensions(
+            scanning_rule.get("fileExtensions"),
+            path=(*path_base, "properties", "scanningRule", "fileExtensions"),
+        ),
+        excluded_system_classifications=_sorted_strings(
+            props.get("excludedSystemClassifications"),
+            path=(*path_base, "properties", "excludedSystemClassifications"),
+        ),
+        included_custom_classification_rule_names=_sorted_strings(
+            props.get("includedCustomClassificationRuleNames"),
+            path=(*path_base, "properties", "includedCustomClassificationRuleNames"),
+        ),
+        description=description,
+    )
+
+
+def _normalize_scan_resource(
+    raw: dict[str, Any],
+    *,
+    index: int,
+) -> ScanResourceConfig:
+    path_base = ("resources", index)
+    props = _require_props(raw, path_base=path_base)
+    collection = props["collection"]
+    if not isinstance(collection, dict):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "collection"),
+                    message="collection must be an object",
+                ),
+            )
+        )
+    ref = collection["referenceName"]
+    if not isinstance(ref, str) or not ref.strip():
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "collection", "referenceName"),
+                    message="collection.referenceName must be a non-empty string",
+                ),
+            )
+        )
+    scan_ruleset_type = props["scanRulesetType"]
+    if scan_ruleset_type not in {"System", "Custom"}:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "scanRulesetType"),
+                    message="scanRulesetType must be System or Custom",
+                ),
+            )
+        )
+    return ScanResourceConfig(
+        name=str(raw["name"]),
+        kind="AzureStorageMsi",
+        data_source_name=str(props["dataSourceName"]),
+        scan_ruleset_name=str(props["scanRulesetName"]).strip(),
+        scan_ruleset_type=scan_ruleset_type,  # type: ignore[arg-type]
+        collection_reference_name=ref.strip(),
+    )
+
+
+def _normalize_resource(raw: object, *, index: int) -> GovernanceResourceConfig:
+    path_base = ("resources", index)
+    if not isinstance(raw, dict):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base),
+                    message="resource must be an object",
+                ),
+            )
+        )
+    resource_type = raw.get("type")
+    if resource_type == "dataSource":
+        return _normalize_data_source_resource(raw, index=index)
+    if resource_type == "scanRuleSet":
+        return _normalize_scan_rule_set_resource(raw, index=index)
+    if resource_type == "scan":
+        return _normalize_scan_resource(raw, index=index)
+    raise ConfigValidationError(
+        (
+            ConfigDiagnostic(
+                code="config.unknown_field",
+                path=json_pointer(*path_base, "type"),
+                message="unsupported resource type",
+            ),
+        )
+    )
+
+
 def normalize_document(document: dict[str, Any]) -> GovernanceConfig:
     """Build an immutable normalized config from a validated document."""
     endpoint = normalize_endpoint(document["target"]["endpoint"])
     raw_resources = document.get("resources") or ()
     resources = tuple(
-        _normalize_data_source_resource(item, index=index)
-        for index, item in enumerate(raw_resources)
+        _normalize_resource(item, index=index) for index, item in enumerate(raw_resources)
     )
-    # Deterministic order by name (independent of YAML/JSON array order).
-    resources = tuple(sorted(resources, key=lambda item: item.name))
+    resources = tuple(sorted(resources, key=resource_sort_key))
     return GovernanceConfig(
         api_version=str(document["apiVersion"]),
         target=TargetConfig(endpoint=endpoint),

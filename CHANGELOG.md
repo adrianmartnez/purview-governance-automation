@@ -9,6 +9,25 @@ and this project uses [Semantic Versioning](https://semver.org/) for the
 mean package version `1.0.0`; a future package `1.x` may keep contract `v1`
 while those artifacts remain compatible.
 
+## [Unreleased]
+
+Development toward package `1.1.0.dev0` (stable remains `1.0.0`).
+
+### Added (inspect-only; no live-tenant claim)
+
+- Config / remote-state / plan **v2** contracts for AzureStorage **Scans** and
+  **Custom AzureStorage Scan Rule Sets** (read, compare, and inspect-only plan).
+- Multi-resource desired-vs-remote diff (data sources, scans, scan rule sets).
+- Loopback contract coverage for Scan and Scan Rule Set list/get.
+
+### Safety / limitations
+
+- **Apply remains `purview-governance-plan/v1` only**; plan/v2 is rejected
+  before any network write.
+- Explicit unsupported Scan configurable fields block safe comparison
+  (`remote.unsupported_configurable_field`).
+- No claim of validation against a live Microsoft Purview tenant.
+
 ## [1.0.0] - 2026-08-10
 
 First stable package release of the Purview Automation Foundation vertical slice.

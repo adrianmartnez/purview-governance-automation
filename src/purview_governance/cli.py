@@ -26,13 +26,15 @@ from purview_governance.auth.errors import AuthenticationError
 from purview_governance.cli_paths import paths_conflict, resolve_path
 from purview_governance.config import validate_config_file
 from purview_governance.config.diagnostics import ConfigValidationError
+from purview_governance.config.models import CONFIG_API_VERSION_V2
 from purview_governance.plan import (
     PlanError,
     build_governance_plan,
+    build_governance_plan_v2,
     format_plan_summary,
     load_plan_file,
 )
-from purview_governance.remote_state import capture_remote_state
+from purview_governance.remote_state import capture_remote_state, capture_remote_state_v2
 from purview_governance.remote_state.canonical import dumps_canonical
 from purview_governance.remote_state.errors import RemoteStateError
 from purview_governance.scanning import PurviewScanningClient
@@ -151,13 +153,13 @@ def _dispatch(args: argparse.Namespace, deps: _CliDependencies) -> int:
 
 def _cmd_config_validate(args: argparse.Namespace) -> int:
     try:
-        validate_config_file(args.config)
+        config = validate_config_file(args.config)
     except ConfigValidationError as exc:
         return _print_error(exc.code, EXIT_VALIDATION)
     except OSError:
         return _print_error("cli.input_not_found", EXIT_VALIDATION)
     if args.as_json:
-        print(dumps_canonical({"status": "valid", "apiVersion": "purview-governance-config/v1"}))
+        print(dumps_canonical({"status": "valid", "apiVersion": config.api_version}))
     else:
         print("config valid")
     return EXIT_SUCCESS
@@ -177,7 +179,10 @@ def _cmd_remote_capture(args: argparse.Namespace, deps: _CliDependencies) -> int
     client = None
     try:
         client = _build_client(config.target.endpoint, deps)
-        remote = capture_remote_state(client)
+        if config.api_version == CONFIG_API_VERSION_V2:
+            remote = capture_remote_state_v2(client)
+        else:
+            remote = capture_remote_state(client)
         _write_atomic(args.output, dumps_canonical(remote.to_document()), force=args.force)
     except AuthenticationError:
         return _print_error("cli.authentication_failed", EXIT_PREWRITE)
@@ -207,8 +212,12 @@ def _cmd_plan_create(args: argparse.Namespace, deps: _CliDependencies) -> int:
     client = None
     try:
         client = _build_client(config.target.endpoint, deps)
-        remote = capture_remote_state(client)
-        plan = build_governance_plan(config, remote)
+        if config.api_version == CONFIG_API_VERSION_V2:
+            remote = capture_remote_state_v2(client)
+            plan = build_governance_plan_v2(config, remote)
+        else:
+            remote = capture_remote_state(client)
+            plan = build_governance_plan(config, remote)
         _write_atomic(args.output, plan.to_canonical_json(), force=args.force)
         print(format_plan_summary(plan), end="")
     except AuthenticationError:

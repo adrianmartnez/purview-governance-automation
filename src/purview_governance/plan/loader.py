@@ -1,4 +1,4 @@
-"""Strict JSON loader for purview-governance-plan/v1."""
+"""Strict JSON loader for purview-governance-plan/v1 and /v2."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from purview_governance.plan.errors import (
     PlanSchemaError,
     PlanVersionError,
 )
-from purview_governance.plan.identity import PLAN_API_VERSION
+from purview_governance.plan.identity import PLAN_API_VERSION, PLAN_API_VERSION_V2
 from purview_governance.plan.models import (
     GovernancePlan,
     PlanIdentities,
@@ -89,11 +89,11 @@ def _governance_plan_from_validated_document(document: dict[str, Any]) -> Govern
 
 
 def load_plan_text(text: str) -> GovernancePlan:
-    """Load and strictly validate a purview-governance-plan/v1 JSON artifact."""
+    """Load and strictly validate a purview-governance-plan/v1 or /v2 JSON artifact."""
     document = _parse_plan_json(text)
 
     api_version = document.get("apiVersion")
-    if api_version != PLAN_API_VERSION:
+    if api_version not in {PLAN_API_VERSION, PLAN_API_VERSION_V2}:
         raise PlanVersionError(
             "plan.unsupported_version",
             "unsupported or missing plan apiVersion",
