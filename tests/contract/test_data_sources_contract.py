@@ -101,7 +101,8 @@ def test_put_create_or_replace_canonical_body() -> None:
     with start_contract_server(put_mode="created", put_expected_body=payload) as server:
         with make_loopback_client(server.base_url) as client:
             result = client._create_or_replace_data_source("myDataSource", payload)
-        assert result["name"] == "myDataSource"
+        assert result.name == "myDataSource"
+        assert result.status_code == 201
         rec = server.state.recordings[0]
         assert rec.method == "PUT"
         assert rec.path == "/scan/datasources/myDataSource"
@@ -118,7 +119,18 @@ def test_put_accepts_200_ok() -> None:
     with start_contract_server(put_mode="ok", put_expected_body=payload) as server:
         with make_loopback_client(server.base_url) as client:
             result = client._create_or_replace_data_source("myDataSource", payload)
-        assert result["kind"] == "AzureStorage"
+        assert result.name == "myDataSource"
+        assert result.status_code == 200
+
+
+@pytest.mark.api_contract
+def test_put_bad_json_body_still_confirmed_write() -> None:
+    payload = {"kind": "AzureStorage"}
+    with start_contract_server(put_mode="ok_bad_json", put_expected_body=payload) as server:
+        with make_loopback_client(server.base_url) as client:
+            result = client._create_or_replace_data_source("myDataSource", payload)
+        assert result.status_code == 200
+        assert len([r for r in server.state.recordings if r.method == "PUT"]) == 1
 
 
 @pytest.mark.api_contract
