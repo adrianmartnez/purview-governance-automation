@@ -1,199 +1,175 @@
 # purview-governance-automation
 
-Microsoft Purview governance automation in Python for deterministic Data Map scanning,
-classification governance, catalog automation, drift detection, and safe API workflows.
+Microsoft Purview governance automation in Python for deterministic Data Map
+Data Source planning and safe explicit apply workflows.
 
 Development package version: `0.1.0.dev0` (pre-v1.0; not a stable release).
 
 ## Status
 
-Implemented:
+### Implemented
 
-- installable Python package and packaging foundation (`src/` layout, wheel/sdist)
-- minimal `purview-governance` CLI foundation (`--help`, `--version`)
-- CI and offline test infrastructure (lint, unit tests, package validation,
-  offline API contract tests, CLI integration against an installed wheel)
-- versioned governance configuration contract `purview-governance-config/v1` (#8),
-  including additive desired Data Source resources for the AzureStorage vertical
-  slice (`type: dataSource`): packaged JSON Schema, offline YAML/JSON
-  parsing/validation/normalization, stable diagnostics, and a `config validate`
-  application service (not yet exposed as a public CLI subcommand)
-- Microsoft Entra authentication boundary (#9): `TokenCredential`-based provider,
-  centralized Purview OAuth scope, sanitized auth errors, and a convenient
-  `DefaultAzureCredential` factory (replaceable; offline/fake tests only by default)
-- Purview Scanning Data Plane client foundation (#10), API version `2023-09-01`:
-  Data Source list/get, internal create-or-replace primitive, bounded timeouts,
-  sanitized errors, injectable HTTP transport for offline unit tests
-- deterministic Purview API contract-test server (#11): real HTTP over loopback
-  with fictional Data Source fixtures, request recording without raw
-  Authorization values, and the `api-contract-tests` CI lane
-- read-only Purview Data Source remote-state inspection (#12): List+Get capture,
-  AzureStorage vertical-slice normalization, packaged `purview-remote-state/v1`
-  schema, canonical JSON, and stable `materialStateIdentity` (observed-state
-  safety/identity; offline/fake and loopback contract tests only)
-- deterministic Data Source desired-state diff (#13): create / replace / no-op /
-  remote-only / blocked outcomes with property-level reasons; read-only; no delete
-- versioned deterministic governance plan artifacts (#14):
-  `purview-governance-plan/v1` with domain-separated identities, desired-state
-  snapshot, closed change-set/operations contract, whole-plan
-  `executionEligibility` (`ready` / `blocked`), JSON-only loader with schema +
-  semantic integrity, and offline `build_governance_plan(config, remote_state)`
-  (zero remote writes; no public plan CLI yet)
+- installable Python package (`src/` layout, wheel/sdist) and five CI gates:
+  `lint`, `unit-tests`, `package-validation`, `api-contract-tests`, `cli-integration`
+- versioned config `purview-governance-config/v1` (AzureStorage vertical slice)
+- Microsoft Entra auth boundary (`DefaultAzureCredential`, scope
+  `https://purview.azure.net/.default`)
+- Scanning Data Plane client pinned to API version `2023-09-01` (list/get +
+  package-private create-or-replace receipt)
+- deterministic loopback contract-test server
+- read-only remote-state `purview-remote-state/v1`
+- desired-vs-remote diff (create/replace/no-op/remote-only/blocked; no delete)
+- versioned plan `purview-governance-plan/v1`
+- safe explicit apply (`execute_governance_plan`) with dry-run default
+- execution result `purview-execution-result/v1` with `resultIdentity`
+- complete v1 CLI workflows
 
-Not implemented yet:
+### Contract-tested offline
 
-- safe explicit apply (#15)
-- complete v1.0 CLI workflows and documentation (#16)
+Default CI and reviewer flows exercise the Scanning client, remote-state capture,
+plan build, dry-run, and authorized apply against a deterministic local HTTP
+contract server. This does **not** contact a live Microsoft Purview account and
+does **not** claim live-tenant validation.
+
+### Not claimed / not implemented
+
 - stable `v1.0.0` release (#17)
-- Data Source kinds beyond the AzureStorage vertical slice
-- scans, scan rule sets, and classifications (v1.1)
+- Data Source kinds beyond AzureStorage
+- scans, scan rule sets, classifications (v1.1)
+- Unified Catalog (v1.2)
+- automatic deletes
+- production-scale operational hardening
 - validation against a live Microsoft Purview environment
 
-No production Purview capability is claimed. Behavior has not been validated against
-a live Microsoft Purview environment.
+## Safety model (apply)
 
-The required CI check `api-contract-tests` exercises the Scanning client and
-remote-state capture against a deterministic local HTTP contract server. It does
-not contact a live Microsoft Purview account.
+`execute_governance_plan(plan, client, *, mode=ExecutionMode.DRY_RUN)` is the
+supported mutation boundary. CLI flags are not the security boundary.
 
-## Governance configuration (v1)
+Preflight order (fail-closed; zero PUT until complete):
 
-Contract name: `purview-governance-config`. Contract version `1` is independent of
-the package SemVer.
+1. revalidate plan document
+2. validate exact `ExecutionMode`
+3. `executionEligibility` + create/replace-only operations
+4. bind logical target (`client.target_endpoint`) vs plan target
+5. materialize all mutation payloads from the plan desired snapshot
+6. fresh `capture_remote_state` (List+Get)
+7. compare `materialStateIdentity` to `plan.identities.remoteState`
+8. dry-run (ready, zero PUT) or apply (sequential PUTs)
 
-- Load YAML or JSON offline (no network calls, no remote writes).
-- Duplicate object/mapping keys are rejected (`config.duplicate_key`); last-value-wins
-  is never applied.
-- YAML uses SafeLoader semantics via a strict `SafeLoader` subclass that only adds
-  duplicate-key rejection.
-- Unknown fields fail closed. Credential material field names are rejected with
-  `config.secret_field_forbidden`.
-- `resources` may be empty (documents with `resources: []` remain valid) or contain
-  closed `type: dataSource` items with `kind: AzureStorage` and material desired
-  fields only (`name`, `properties.endpoint`, `properties.collection.referenceName`).
-- Duplicate desired Data Source names fail closed.
-- Sample (fictional values only): `examples/fictional-governance-config.yaml`.
+Write outcome classification:
 
-Application helpers:
+- HTTP **200/201** → confirmed write (`writesPerformed`), independent of response body
+- explicit **4xx** → `write-failed` / `apply.write_rejected`
+- **5xx**, transport timeout/error, unexpected 2xx/3xx → `indeterminate` /
+  `apply.write_outcome_unknown` (not claimed side-effect-free)
+- token acquisition failure when starting a mutation (before `_send`) →
+  `write-failed` / `apply.write_auth_failed` (deterministic; may follow a
+  successful write prefix)
 
-```python
-from purview_governance.config import validate_config_file
-from purview_governance.desired import desired_state_from_config
-from purview_governance.diff import diff_desired_vs_remote
-from purview_governance.plan import build_governance_plan
+No automatic retry. No auto-replan. Residual TOCTOU between final GET and first
+PUT is documented; v1 does not use ETags/CAS.
 
-config = validate_config_file("examples/fictional-governance-config.yaml")
-desired = desired_state_from_config(config)
+`writesAttempted` means the apply service initiated the PUT primitive after
+preflight — not proof the server received bytes.
+
+## Execution result provenance
+
+`purview-execution-result/v1` records:
+
+- `plannedTargetContextIdentity` vs `executionTargetContextIdentity`
+- `plannedRemoteStateIdentity` vs `observedRemoteStateIdentity`
+
+Status values prove which preflight stage completed (for example `wrong-target`
+requires mismatched target identities and null observed remote;
+`applied`/`write-failed`/`indeterminate`/`dry-run-ready` require
+observed == planned remote identity).
+
+## CLI
+
+```text
+purview-governance config validate CONFIG [--json]
+purview-governance remote-state capture CONFIG --output remote.json [--force]
+purview-governance plan create CONFIG --output plan.json [--force]
+purview-governance plan inspect PLAN [--json]
+purview-governance apply PLAN                 # dry-run (default)
+purview-governance apply PLAN --apply [--result result.json] [--force] [--json]
+purview-governance result inspect RESULT [--json]
 ```
 
-## Microsoft Entra authentication
+Apply builds the Scanning client from the **plan** target endpoint (no external
+config required for desired payload). `--force` never allows overwriting an input
+artifact (plan/config). Output destination is preflight-checked before network.
 
-The integration boundary accepts any `azure.core.credentials.TokenCredential` and
-centralizes the Purview scope `https://purview.azure.net/.default`.
+### Exit codes
 
-`create_default_azure_credential_provider()` builds a provider with
-`DefaultAzureCredential` as a convenient supported factory. Callers may inject a
-more specific credential instead. This has not been validated against a live
-Microsoft Purview environment.
+| Code | Meaning |
+|------|---------|
+| 0 | success / dry-run-ready / applied |
+| 2 | argparse usage |
+| 3 | input/contract/path validation |
+| 4 | blocked / wrong-target / stale |
+| 5 | failed-before-write (auth/read/preflight) |
+| 6 | write-failed / indeterminate / unexpected APPLY internal failure |
+| 7 | local artifact persistence failure after execution |
 
-For non-interactive automation, Azure Identity environment conventions apply when
-using the default factory, for example:
+An unexpected internal failure during `--apply` (exit 6) must not be treated as
+pre-write success/failure certainty: capture fresh remote state and re-plan
+before retrying. Dry-run never issues PUTs, so unexpected dry-run failures use
+exit 5.
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_CLIENT_SECRET`
+### Offline reviewer workflow (contract-tested)
 
-(or managed identity / other credential chain members supported by Azure Identity).
-Do not put secrets in governance configuration files.
+```powershell
+pip install -e ".[dev]"
+pytest tests/cli/test_offline_v1_workflow.py -v
+```
 
-This project does not enable detailed Azure Identity credential logging. Consumers
-should not enable sensitive credential logging in environments where logs are not
-adequately protected.
+This exercises config → remote capture → plan → inspect → dry-run → apply against
+the loopback contract server via a package-private CLI dependency seam. It does
+not require Azure credentials and does not expose public `--base-url` / `--insecure`
+flags.
 
-## Scanning Data Plane client foundation
-
-`PurviewScanningClient` targets the Microsoft Purview Scanning Data Plane API
-version `2023-09-01` for the v1 Data Source read path (list/get) and exposes an
-internal create-or-replace primitive for later explicit apply. It uses HTTPS
-endpoints normalized by the governance config contract, obtains `Authorization`
-only in memory via `PurviewAuthorizationProvider`, applies bounded connect/read
-timeouts, does not follow redirects, and does not perform automatic retries or
-automatic writes.
-
-Default unit tests use fake credentials and injected/mocked HTTP transports.
-Contract tests use a deterministic loopback HTTP server with fictional fixtures.
-Neither lane contacts a live Microsoft Purview account.
-
-## Remote state and desired-state diff
-
-`capture_remote_state` discovers Data Sources via `list_data_sources`, then reads
-each authoritative body with `get_data_source` (List+Get). It normalizes only the
-AzureStorage vertical slice, accounts for unsupported kinds, and emits
-`purview-remote-state/v1` with a non-self-referential `materialStateIdentity`.
-
-`diff_desired_vs_remote` is a pure offline comparison. Outcomes are `create`,
-`replace`, `no-op`, `remote-only`, and `blocked`. There is no `delete` outcome.
-Remote-only means unmanaged visibility; omission from desired does not imply
-ownership or deletion. Diff does not authorize or execute writes.
-
-## Governance plan artifacts (v1)
-
-`build_governance_plan` derives desired state and diff internally from a
-revalidated `GovernanceConfig` and a canonical `purview-remote-state/v1` input.
-The resulting `purview-governance-plan/v1` artifact is self-contained for later
-apply review: it stores the normalized desired snapshot, change set, ordered
-create/replace operations, and identities for target context, material
-configuration, desired state, remote state (`materialStateIdentity`), and the
-plan itself (`planIdentity`).
-
-`executionEligibility=blocked` means future apply (#15) must perform zero writes
-for the whole plan, even if create/replace candidates are listed for review.
-Plans contain no credentials. Auth strategy is validated as part of the config
-contract but is excluded from material configuration identity. Loader accepts
-lexically equivalent JSON (pretty-print / key order) while rejecting noncanonical
-field values and closed reason/outcome mismatches.
-
-## Development
+## Quick start (clean checkout)
 
 Requires Python 3.12+.
 
-```bash
+```powershell
 python -m venv .venv
-# PowerShell
 .\.venv\Scripts\Activate.ps1
-# POSIX
-source .venv/bin/activate
 pip install -e ".[dev]"
 
 ruff check .
 ruff format --check .
 pytest -m "not api_contract"
 pytest -m api_contract
-
 python -m build
 ```
 
-Package and CLI smoke should use the built wheel in a clean environment under a
-temporary directory outside the checkout (for example `$TEMP` / `$RUNNER_TEMP`) so
-imports cannot come from the source tree.
+Fictional sample config: `examples/fictional-governance-config.yaml`.
 
-```bash
-# create a temp venv outside the repo, install the wheel, then from a temp cwd:
-purview-governance --version
-purview-governance --help
-python -m purview_governance --version
-python -m purview_governance --help
+```powershell
+purview-governance config validate examples/fictional-governance-config.yaml
+```
+
+## Repository structure
+
+```text
+src/purview_governance/
+  auth/ config/ desired/ diff/ plan/ remote_state/ scanning/ apply/
+  cli.py
+examples/
+tests/   # unit, api_contract, cli offline workflow
+.github/workflows/ci.yml
 ```
 
 ## Current roadmap
 
-- v1.0 — Purview Automation Foundation
+- v1.0 — Purview Automation Foundation (functionality complete pending #17 release)
 - v1.1 — Scanning and Classification as Code
 - v1.2 — Unified Catalog Governance
 - v1.3 — Governance Drift and Operations
 - v2.0 — Enterprise Automation and Extensibility
-
-Detailed milestones and issues are tracked in GitHub.
 
 ## License
 

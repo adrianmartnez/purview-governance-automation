@@ -47,5 +47,5 @@ def format_plan_summary(plan: GovernancePlan) -> str:
             lines.append(f"  {item.name}: {reason_codes}")
 
     if plan.execution_eligibility == "blocked":
-        lines.append("note: executionEligibility=blocked requires ZERO WRITES on apply (#15)")
+        lines.append("note: executionEligibility=blocked requires ZERO WRITES on apply")
     return "\n".join(lines) + "\n"
