@@ -3,7 +3,12 @@
 Microsoft Purview governance automation in Python for deterministic Data Map
 Data Source planning and safe explicit apply workflows.
 
-Development package version: `0.1.0.dev0` (pre-v1.0; not a stable release).
+Stable package version: `1.0.0` (v1.0 released / stable).
+
+Package SemVer is independent of machine-contract versions
+(`purview-governance-config/v1`, `purview-remote-state/v1`,
+`purview-governance-plan/v1`, `purview-execution-result/v1`). See
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Status
 
@@ -33,7 +38,6 @@ does **not** claim live-tenant validation.
 
 ### Not claimed / not implemented
 
-- stable `v1.0.0` release (#17)
 - Data Source kinds beyond AzureStorage
 - scans, scan rule sets, classifications (v1.1)
 - Unified Catalog (v1.2)
@@ -161,12 +165,13 @@ src/purview_governance/
 examples/
 tests/   # unit, api_contract, cli offline workflow
 .github/workflows/ci.yml
+CHANGELOG.md
 ```
 
 ## Current roadmap
 
-- v1.0 — Purview Automation Foundation (functionality complete pending #17 release)
-- v1.1 — Scanning and Classification as Code
+- v1.0 — Purview Automation Foundation (**stable / released** as package `1.0.0`)
+- v1.1 — Scanning and Classification as Code (next)
 - v1.2 — Unified Catalog Governance
 - v1.3 — Governance Drift and Operations
 - v2.0 — Enterprise Automation and Extensibility

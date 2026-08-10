@@ -10,12 +10,12 @@ import purview_governance
 
 
 def test_package_version_literal() -> None:
-    assert purview_governance.__version__ == "0.1.0.dev0"
+    assert purview_governance.__version__ == "1.0.0"
 
 
 def test_distribution_metadata_matches_runtime() -> None:
     dist_version = importlib.metadata.version("purview-governance-automation")
-    assert dist_version == purview_governance.__version__ == "0.1.0.dev0"
+    assert dist_version == purview_governance.__version__ == "1.0.0"
 
 
 def test_module_entry_help() -> None:
@@ -37,4 +37,4 @@ def test_module_entry_version() -> None:
         text=True,
     )
     assert result.returncode == 0
-    assert result.stdout.strip() == "purview-governance 0.1.0.dev0"
+    assert result.stdout.strip() == "purview-governance 1.0.0"

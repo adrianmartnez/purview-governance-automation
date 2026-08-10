@@ -27,7 +27,7 @@ def test_main_version_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
-    assert captured.out.strip() == "purview-governance 0.1.0.dev0"
+    assert captured.out.strip() == "purview-governance 1.0.0"
 
 
 def test_main_unknown_argument_exits_two() -> None:
