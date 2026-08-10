@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-plan/v1",
+  "title": "purview-governance-plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "configurationApiVersion",
+    "targetContext",
+    "identities",
+    "desiredState",
+    "changeSet",
+    "executionEligibility",
+    "operations",
+    "summary",
+    "planIdentity"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-governance-plan/v1"
+    },
+    "configurationApiVersion": {
+      "const": "purview-governance-config/v1"
+    },
+    "targetContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "identity"],
+      "properties": {
+        "endpoint": { "type": "string", "minLength": 1 },
+        "identity": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["materialConfiguration", "desiredState", "remoteState"],
+      "properties": {
+        "materialConfiguration": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "desiredState": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "remoteState": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "desiredState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataSources"],
+      "properties": {
+        "dataSources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "name", "kind", "properties"],
+            "properties": {
+              "type": { "const": "dataSource" },
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "kind": { "const": "AzureStorage" },
+              "properties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["endpoint", "collection"],
+                "properties": {
+                  "endpoint": { "type": "string", "minLength": 1 },
+                  "collection": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["referenceName"],
+                    "properties": {
+                      "referenceName": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "changeSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type", "outcome", "reasons"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "type": { "const": "dataSource" },
+              "outcome": {
+                "type": "string",
+                "enum": ["create", "replace", "no-op", "remote-only", "blocked"]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["code", "path"],
+                  "properties": {
+                    "code": { "type": "string", "minLength": 1 },
+                    "path": { "type": "string", "minLength": 1 },
+                    "before": { "type": "string" },
+                    "after": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "executionEligibility": {
+      "type": "string",
+      "enum": ["ready", "blocked"]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "type", "name", "action"],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": { "const": "dataSource" },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "replace"]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "create",
+        "replace",
+        "noOp",
+        "remoteOnly",
+        "blocked",
+        "operations"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "create": { "type": "integer", "minimum": 0 },
+        "replace": { "type": "integer", "minimum": 0 },
+        "noOp": { "type": "integer", "minimum": 0 },
+        "remoteOnly": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "operations": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "planIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

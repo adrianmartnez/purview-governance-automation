@@ -102,6 +102,7 @@ jobs:
           test -f "$ROOT/src/purview_governance/__main__.py"
           test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v1.json"
           test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v1.json"
+          test -f "$ROOT/src/purview_governance/plan/schemas/purview_governance_plan_v1.json"
           test -f "$ROOT/examples/fictional-governance-config.yaml"
 
           python -m venv "$RUNNER_TEMP/venv-wheel"
@@ -114,6 +115,7 @@ jobs:
             python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
             python -c "from purview_governance.config.schema import load_v1_schema; s=load_v1_schema(); assert s['\$id'].endswith('/purview-governance-config/v1'), s.get('\$id'); print('schema-ok', s['\$id'])"
             python -c "from purview_governance.remote_state import load_remote_state_v1_schema, build_remote_state; s=load_remote_state_v1_schema(); assert s['\$id'].endswith('/purview-remote-state/v1'), s.get('\$id'); rs=build_remote_state((), ()); assert rs.material_state_identity.startswith('sha256:'); print('remote-state-ok', s['\$id'], rs.material_state_identity)"
+            python -c "from purview_governance.plan import load_plan_v1_schema, build_governance_plan, load_plan_text; from purview_governance.config import validate_config_text; from purview_governance.remote_state import build_remote_state; import json; s=load_plan_v1_schema(); assert s['\$id'].endswith('/purview-governance-plan/v1'), s.get('\$id'); cfg=validate_config_text('apiVersion: purview-governance-config/v1\ntarget:\n  endpoint: https://account.purview.azure.com\nauthentication:\n  strategy: defaultAzureCredential\nresources: []\n', format_hint='yaml'); plan=build_governance_plan(cfg, build_remote_state((), ())); canonical=plan.to_canonical_json(); loaded=load_plan_text(canonical); assert loaded.to_canonical_json()==canonical; pretty=json.dumps(json.loads(canonical), indent=2, ensure_ascii=False); loaded_pretty=load_plan_text(pretty); assert loaded_pretty.to_canonical_json()==canonical; print('plan-ok', s['\$id'], plan.plan_identity)"
             python -c "import httpx; from purview_governance.scanning import PurviewScanningClient, SCANNING_API_VERSION; assert SCANNING_API_VERSION == '2023-09-01'; print('scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
           )
           deactivate
@@ -139,6 +141,7 @@ jobs:
             python -c "import purview_governance, importlib.metadata as m; v=m.version('purview-governance-automation'); assert purview_governance.__version__ == v == '${EXPECTED_VERSION}', (purview_governance.__version__, v)"
             python -c "from purview_governance.config.schema import load_v1_schema; load_v1_schema(); print('sdist-schema-ok')"
             python -c "from purview_governance.remote_state import load_remote_state_v1_schema, build_remote_state; load_remote_state_v1_schema(); rs=build_remote_state((), ()); assert rs.material_state_identity.startswith('sha256:'); print('sdist-remote-state-ok')"
+            python -c "from purview_governance.plan import load_plan_v1_schema, build_governance_plan, load_plan_text; from purview_governance.config import validate_config_text; from purview_governance.remote_state import build_remote_state; load_plan_v1_schema(); cfg=validate_config_text('apiVersion: purview-governance-config/v1\ntarget:\n  endpoint: https://account.purview.azure.com\nauthentication:\n  strategy: defaultAzureCredential\nresources: []\n', format_hint='yaml'); plan=build_governance_plan(cfg, build_remote_state((), ())); canonical=plan.to_canonical_json(); loaded=load_plan_text(canonical); assert loaded.to_canonical_json()==canonical; print('sdist-plan-ok', plan.plan_identity)"
             python -c "import httpx; from purview_governance.scanning import PurviewScanningClient; print('sdist-scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
           )
 
