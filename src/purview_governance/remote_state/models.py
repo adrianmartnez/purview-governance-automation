@@ -178,6 +178,17 @@ class ScanObservedProperties:
 
 
 @dataclass(frozen=True, slots=True)
+class UnsupportedConfigurableField:
+    """Evidence that a known configurable field is present but unsupported."""
+
+    path: str
+    value_identity: str  # sha256:<hex>
+
+    def to_document(self) -> dict[str, str]:
+        return {"path": self.path, "valueIdentity": self.value_identity}
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedScan:
     """Normalized supported AzureStorageMsi remote Scan (no raw body)."""
 
@@ -188,7 +199,7 @@ class NormalizedScan:
     scan_ruleset_name: str
     scan_ruleset_type: Literal["System", "Custom"]
     collection_reference_name: str
-    unsupported_configurable_fields: tuple[str, ...] = ()
+    unsupported_configurable_fields: tuple[UnsupportedConfigurableField, ...] = ()
     observed: ScanObservedProperties = field(default_factory=ScanObservedProperties)
 
     def to_document(self) -> dict[str, Any]:
@@ -206,7 +217,10 @@ class NormalizedScan:
             "observedProperties": self.observed.to_document(),
         }
         if self.unsupported_configurable_fields:
-            doc["unsupportedConfigurableFields"] = list(self.unsupported_configurable_fields)
+            doc["unsupportedConfigurableFields"] = [
+                item.to_document()
+                for item in sorted(self.unsupported_configurable_fields, key=lambda f: f.path)
+            ]
         return doc
 
 
@@ -239,6 +253,7 @@ class NormalizedScanRuleSet:
     excluded_system_classifications: tuple[str, ...]
     included_custom_classification_rule_names: tuple[str, ...]
     description: str | None = None
+    unsupported_configurable_fields: tuple[UnsupportedConfigurableField, ...] = ()
 
     def to_document(self) -> dict[str, Any]:
         properties: dict[str, Any] = {
@@ -250,13 +265,19 @@ class NormalizedScanRuleSet:
         }
         if self.description is not None:
             properties["description"] = self.description
-        return {
+        doc: dict[str, Any] = {
             "type": "scanRuleSet",
             "name": self.name,
             "kind": self.kind,
             "scanRulesetType": self.scan_ruleset_type,
             "properties": properties,
         }
+        if self.unsupported_configurable_fields:
+            doc["unsupportedConfigurableFields"] = [
+                item.to_document()
+                for item in sorted(self.unsupported_configurable_fields, key=lambda f: f.path)
+            ]
+        return doc
 
 
 @dataclass(frozen=True, slots=True)

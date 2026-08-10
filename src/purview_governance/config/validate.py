@@ -154,6 +154,18 @@ def _map_validation_error(
             )
         ]
 
+    if validator == "enum" and "fileExtensions" in list(error.absolute_path):
+        return [
+            ConfigDiagnostic(
+                code="config.invalid_file_extension",
+                path=path,
+                message=(
+                    f"file extension {error.instance!r} is not a documented "
+                    "FileExtensionsType value"
+                ),
+            )
+        ]
+
     if list(error.absolute_path) == ["apiVersion"]:
         return [
             ConfigDiagnostic(
@@ -235,8 +247,16 @@ def validate_document(document: dict[str, Any]) -> dict[str, Any]:
             continue
         if error.validator == "additionalProperties":
             diagnostics.extend(_collect_additional_property_diagnostics(error))
-        else:
-            diagnostics.extend(_map_validation_error(error, api_version=selected_version))
+            continue
+        if error.validator in {"oneOf", "anyOf"} and error.context:
+            nested: list[ConfigDiagnostic] = []
+            for child in error.context:
+                if child.validator == "enum" and "fileExtensions" in list(child.absolute_path):
+                    nested.extend(_map_validation_error(child, api_version=selected_version))
+            if nested:
+                diagnostics.extend(nested)
+                continue
+        diagnostics.extend(_map_validation_error(error, api_version=selected_version))
 
     diagnostics.extend(_duplicate_resource_identity_diagnostics(document))
     diagnostics = _dedupe_diagnostics(diagnostics)

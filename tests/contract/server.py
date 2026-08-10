@@ -96,12 +96,19 @@ def custom_azure_storage_scan_ruleset_fixture(
     excluded_system_classifications: list[str] | None = None,
     included_custom_classification_rule_names: list[str] | None = None,
     description: str | None = None,
+    custom_file_extensions: list[dict[str, object]] | None = None,
+    include_null_custom_file_extensions: bool = False,
 ) -> dict[str, Any]:
     """Custom AzureStorage Scan Rule Set with top-level scanRulesetType."""
+    scanning_rule: dict[str, Any] = {
+        "fileExtensions": list(file_extensions or ["CSV", "JSON"]),
+    }
+    if custom_file_extensions is not None:
+        scanning_rule["customFileExtensions"] = list(custom_file_extensions)
+    elif include_null_custom_file_extensions:
+        scanning_rule["customFileExtensions"] = None
     properties: dict[str, Any] = {
-        "scanningRule": {
-            "fileExtensions": list(file_extensions or ["CSV", "JSON"]),
-        },
+        "scanningRule": scanning_rule,
         "excludedSystemClassifications": list(excluded_system_classifications or []),
         "includedCustomClassificationRuleNames": list(
             included_custom_classification_rule_names or []
@@ -346,6 +353,15 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                     200,
                     {
                         "value": [{"name": "alphaSource", "kind": "AzureStorage"}],
+                        "count": 1,
+                    },
+                )
+                return
+            if mode == "example_source":
+                self._send_json(
+                    200,
+                    {
+                        "value": [{"name": "example-source", "kind": "AzureStorage"}],
                         "count": 1,
                     },
                 )

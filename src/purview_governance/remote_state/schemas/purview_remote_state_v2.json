@@ -191,8 +191,16 @@
           "unsupportedConfigurableFields": {
             "type": "array",
             "items": {
-              "type": "string",
-              "minLength": 1
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "valueIdentity"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "valueIdentity": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
             }
           }
         }
@@ -260,7 +268,43 @@
                 "properties": {
                   "fileExtensions": {
                     "type": "array",
-                    "items": { "type": "string", "minLength": 1 }
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "AVRO",
+                        "CSV",
+                        "DOC",
+                        "DOCM",
+                        "DOCX",
+                        "DOT",
+                        "Documents",
+                        "GZ",
+                        "JSON",
+                        "ODP",
+                        "ODS",
+                        "ODT",
+                        "ORC",
+                        "PARQUET",
+                        "PDF",
+                        "POT",
+                        "PPS",
+                        "PPSX",
+                        "PPT",
+                        "PPTM",
+                        "PPTX",
+                        "PSV",
+                        "SSV",
+                        "TSV",
+                        "TXT",
+                        "XLC",
+                        "XLS",
+                        "XLSB",
+                        "XLSM",
+                        "XLSX",
+                        "XLT",
+                        "XML"
+                      ]
+                    }
                   }
                 }
               },
@@ -273,6 +317,21 @@
                 "items": { "type": "string", "minLength": 1 }
               },
               "description": { "type": "string" }
+            }
+          },
+          "unsupportedConfigurableFields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "valueIdentity"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "valueIdentity": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
             }
           }
         }

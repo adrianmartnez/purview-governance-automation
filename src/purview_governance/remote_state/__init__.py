@@ -16,6 +16,7 @@ from purview_governance.remote_state.models import (
     UninterpretedScan,
     UninterpretedScanRuleSet,
     UnknownLegacyMovingState,
+    UnsupportedConfigurableField,
     build_remote_state,
     build_remote_state_v2,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "UninterpretedScan",
     "UninterpretedScanRuleSet",
     "UnknownLegacyMovingState",
+    "UnsupportedConfigurableField",
     "build_remote_state",
     "build_remote_state_v2",
     "capture_remote_state",

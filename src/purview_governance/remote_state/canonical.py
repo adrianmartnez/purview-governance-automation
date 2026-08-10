@@ -14,13 +14,35 @@ def dumps_canonical(document: dict[str, Any]) -> str:
     sorted keys, compact separators, ``ensure_ascii=False``, ``allow_nan=False``,
     and no trailing newline.
     """
+    return dumps_canonical_value(document)
+
+
+def dumps_canonical_value(value: object) -> str:
+    """Serialize any JSON value to deterministic canonical JSON text."""
     return json.dumps(
-        document,
+        value,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
         allow_nan=False,
     )
+
+
+def canonical_json_scalar(value: object) -> str:
+    """Unambiguous JSON canonical encoding for a scalar or structured value.
+
+    Distinguishes Python ``None`` (``null``) from ``""`` (JSON empty string).
+    """
+    return dumps_canonical_value(value)
+
+
+def compute_value_identity(value: object) -> str:
+    """Return ``sha256:<hex>`` of UTF-8 canonical JSON for a typed value.
+
+    Callers must run ``reject_sensitive_keys`` on the value subtree first.
+    """
+    digest = hashlib.sha256(dumps_canonical_value(value).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
 
 
 def compute_material_state_identity(identity_document: dict[str, Any]) -> str:

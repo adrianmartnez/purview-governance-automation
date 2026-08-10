@@ -213,6 +213,50 @@ def _sorted_strings(values: object, *, path: tuple[object, ...]) -> tuple[str, .
     return tuple(sorted(items))
 
 
+def _sorted_file_extensions(values: object, *, path: tuple[object, ...]) -> tuple[str, ...]:
+    # Lazy import avoids config.normalize <-> scanning.client circular import.
+    from purview_governance.scanning.file_extensions import FILE_EXTENSIONS_TYPE
+
+    if not isinstance(values, list):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path),
+                    message="expected a string array",
+                ),
+            )
+        )
+    items: list[str] = []
+    for index, value in enumerate(values):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path, index),
+                        message="array entries must be non-empty strings",
+                    ),
+                )
+            )
+        stripped = value.strip()
+        if stripped not in FILE_EXTENSIONS_TYPE:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_file_extension",
+                        path=json_pointer(*path, index),
+                        message=(
+                            f"file extension {stripped!r} is not a documented "
+                            "FileExtensionsType value"
+                        ),
+                    ),
+                )
+            )
+        items.append(stripped)
+    return tuple(sorted(items))
+
+
 def _normalize_scan_rule_set_resource(
     raw: dict[str, Any],
     *,
@@ -249,7 +293,7 @@ def _normalize_scan_rule_set_resource(
         name=str(raw["name"]),
         kind="AzureStorage",
         scan_ruleset_type="Custom",
-        file_extensions=_sorted_strings(
+        file_extensions=_sorted_file_extensions(
             scanning_rule.get("fileExtensions"),
             path=(*path_base, "properties", "scanningRule", "fileExtensions"),
         ),

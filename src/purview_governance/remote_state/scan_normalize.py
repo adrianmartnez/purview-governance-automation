@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from purview_governance.config.diagnostics import json_pointer
+from purview_governance.remote_state.canonical import compute_value_identity
 from purview_governance.remote_state.errors import RemoteStateError
 from purview_governance.remote_state.models import (
     NormalizedScan,
     NormalizedScanRuleSet,
     ScanObservedProperties,
+    UnsupportedConfigurableField,
 )
 from purview_governance.remote_state.normalize import reject_sensitive_keys
 from purview_governance.remote_state.policy import (
@@ -25,6 +27,9 @@ from purview_governance.remote_state.scan_policy import (
     SCAN_RULESET_TYPES,
     SCAN_RULESET_VOLATILE_PROPERTY_FIELDS,
     SCAN_TOP_LEVEL_KNOWN,
+    SCAN_UNSUPPORTED_NULL_FAIL_PROPERTY_FIELDS,
+    SCAN_UNSUPPORTED_NULL_SAFE_PROPERTY_FIELDS,
+    SCAN_UNSUPPORTED_NULL_SAFE_TOP_LEVEL_FIELDS,
     SCAN_UNSUPPORTED_PROPERTY_FIELDS,
     SCAN_UNSUPPORTED_TOP_LEVEL_FIELDS,
     SCAN_VOLATILE_PROPERTY_FIELDS,
@@ -34,11 +39,29 @@ from purview_governance.remote_state.scan_policy import (
     SUPPORTED_SCAN_RULESET_TYPE,
 )
 from purview_governance.scanning.errors import PurviewDataSourceNameError
+from purview_governance.scanning.file_extensions import FILE_EXTENSIONS_TYPE
 from purview_governance.scanning.names import (
     validate_data_source_name,
     validate_scan_name,
     validate_scan_ruleset_name,
 )
+
+_UnsupportedExpectedType = Literal["object", "string", "boolean", "integer"]
+
+_SCAN_UNSUPPORTED_PROPERTY_EXPECTED_TYPES: dict[str, _UnsupportedExpectedType] = {
+    "connectedVia": "object",
+    "domain": "string",
+    "isLiveViewEnabled": "boolean",
+    "isPresetScan": "boolean",
+    "logLevel": "string",
+    "parallelScanCount": "integer",
+    "workers": "integer",
+    "businessRuleSetName": "string",
+}
+
+_SCAN_UNSUPPORTED_TOP_LEVEL_EXPECTED_TYPES: dict[str, _UnsupportedExpectedType] = {
+    "dataSourceIdentifier": "object",
+}
 
 
 def _raise(code: str, message: str, *path_parts: object) -> None:
@@ -112,19 +135,52 @@ def _normalize_collection(
     return ref.strip()
 
 
-def _record_unsupported_if_present(
+def _value_matches_expected_type(value: object, expected: _UnsupportedExpectedType) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    return False
+
+
+def _record_unsupported_configurable(
     container: dict[str, Any],
     field_name: str,
     *,
     path_parts: tuple[object, ...],
-    unsupported: list[str],
+    expected_type: _UnsupportedExpectedType,
+    null_policy: Literal["safe_absent", "fail"],
+    unsupported: list[UnsupportedConfigurableField],
 ) -> None:
-    """Absent or wire-valid null => SAFE ABSENT; any other value => unsupported."""
+    """Apply per-field null policy and record explicit unsupported values with identity."""
     if field_name not in container:
         return
-    if container[field_name] is None:
-        return
-    unsupported.append(json_pointer(*path_parts, field_name))
+    value = container[field_name]
+    if value is None:
+        if null_policy == "safe_absent":
+            return
+        _raise(
+            "remote_state.invalid_shape",
+            f"{field_name} must not be null",
+            *(*path_parts, field_name),
+        )
+    if not _value_matches_expected_type(value, expected_type):
+        _raise(
+            "remote_state.invalid_shape",
+            f"{field_name} has an invalid type for unsupported configurable capture",
+            *(*path_parts, field_name),
+        )
+    reject_sensitive_keys(value, path_parts=(*path_parts, field_name))
+    unsupported.append(
+        UnsupportedConfigurableField(
+            path=json_pointer(*path_parts, field_name),
+            value_identity=compute_value_identity(value),
+        )
+    )
 
 
 def _sorted_string_list(
@@ -150,6 +206,36 @@ def _sorted_string_list(
                 *(*path_parts, index),
             )
         items.append(entry.strip())
+    return tuple(sorted(items))
+
+
+def _sorted_file_extensions(
+    value: object,
+    *,
+    path_parts: tuple[object, ...],
+) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        _raise(
+            "remote_state.invalid_shape",
+            "expected a string array",
+            *path_parts,
+        )
+    items: list[str] = []
+    for index, entry in enumerate(value):
+        if not isinstance(entry, str) or not entry.strip():
+            _raise(
+                "remote_state.invalid_shape",
+                "array entries must be non-empty strings",
+                *(*path_parts, index),
+            )
+        stripped = entry.strip()
+        if stripped not in FILE_EXTENSIONS_TYPE:
+            _raise(
+                "remote_state.invalid_file_extension",
+                f"file extension {stripped!r} is not a documented FileExtensionsType value",
+                *(*path_parts, index),
+            )
+        items.append(stripped)
     return tuple(sorted(items))
 
 
@@ -288,19 +374,38 @@ def normalize_azure_storage_msi_scan_get(
             "lastRunResult",
         )
 
-    unsupported: list[str] = []
+    unsupported: list[UnsupportedConfigurableField] = []
     for field_name in sorted(SCAN_UNSUPPORTED_PROPERTY_FIELDS):
-        _record_unsupported_if_present(
+        if field_name in SCAN_UNSUPPORTED_NULL_SAFE_PROPERTY_FIELDS:
+            null_policy: Literal["safe_absent", "fail"] = "safe_absent"
+        elif field_name in SCAN_UNSUPPORTED_NULL_FAIL_PROPERTY_FIELDS:
+            null_policy = "fail"
+        else:
+            _raise(
+                "remote_state.invalid_shape",
+                f"missing null policy for unsupported field {field_name!r}",
+                "properties",
+                field_name,
+            )
+            raise AssertionError("unreachable")
+        _record_unsupported_configurable(
             properties,
             field_name,
             path_parts=("properties",),
+            expected_type=_SCAN_UNSUPPORTED_PROPERTY_EXPECTED_TYPES[field_name],
+            null_policy=null_policy,
             unsupported=unsupported,
         )
     for field_name in sorted(SCAN_UNSUPPORTED_TOP_LEVEL_FIELDS):
-        _record_unsupported_if_present(
+        null_policy = (
+            "safe_absent" if field_name in SCAN_UNSUPPORTED_NULL_SAFE_TOP_LEVEL_FIELDS else "fail"
+        )
+        _record_unsupported_configurable(
             body,
             field_name,
             path_parts=(),
+            expected_type=_SCAN_UNSUPPORTED_TOP_LEVEL_EXPECTED_TYPES[field_name],
+            null_policy=null_policy,
             unsupported=unsupported,
         )
 
@@ -378,7 +483,7 @@ def normalize_azure_storage_msi_scan_get(
         scan_ruleset_name=scan_ruleset_name.strip(),
         scan_ruleset_type=scan_ruleset_type,  # type: ignore[arg-type]
         collection_reference_name=collection_ref,
-        unsupported_configurable_fields=tuple(unsupported),
+        unsupported_configurable_fields=tuple(sorted(unsupported, key=lambda item: item.path)),
         observed=ScanObservedProperties(observed_id=observed_id, scan_id=scan_id),
     )
 
@@ -523,6 +628,24 @@ def normalize_custom_azure_storage_scan_ruleset_get(
         SCANNING_RULE_KNOWN,
         path_parts=("properties", "scanningRule"),
     )
+
+    unsupported: list[UnsupportedConfigurableField] = []
+    if "customFileExtensions" in scanning_rule:
+        custom = scanning_rule["customFileExtensions"]
+        if custom is not None:
+            # Explicit non-null (including []) is unsupported configurable evidence.
+            # Do not desired-support; do not unknown_field; do not silently drop.
+            reject_sensitive_keys(
+                custom,
+                path_parts=("properties", "scanningRule", "customFileExtensions"),
+            )
+            unsupported.append(
+                UnsupportedConfigurableField(
+                    path="/properties/scanningRule/customFileExtensions",
+                    value_identity=compute_value_identity(custom),
+                )
+            )
+
     if "fileExtensions" not in scanning_rule:
         _raise(
             "remote_state.invalid_shape",
@@ -531,10 +654,9 @@ def normalize_custom_azure_storage_scan_ruleset_get(
             "scanningRule",
             "fileExtensions",
         )
-    file_extensions = _sorted_string_list(
+    file_extensions = _sorted_file_extensions(
         scanning_rule["fileExtensions"],
         path_parts=("properties", "scanningRule", "fileExtensions"),
-        allow_null_as_empty=False,
     )
 
     excluded = _sorted_string_list(
@@ -549,16 +671,20 @@ def normalize_custom_azure_storage_scan_ruleset_get(
     )
 
     description: str | None = None
-    if "description" in properties and properties["description"] is not None:
+    if "description" in properties:
         raw_description = properties["description"]
-        if not isinstance(raw_description, str):
+        if raw_description is None:
+            description = None
+        elif not isinstance(raw_description, str):
             _raise(
                 "remote_state.invalid_shape",
                 "description must be a string when present",
                 "properties",
                 "description",
             )
-        description = raw_description
+        else:
+            # Preserve empty string distinctly from absent/null.
+            description = raw_description
 
     return NormalizedScanRuleSet(
         name=requested_name,
@@ -568,6 +694,7 @@ def normalize_custom_azure_storage_scan_ruleset_get(
         excluded_system_classifications=excluded,
         included_custom_classification_rule_names=included,
         description=description,
+        unsupported_configurable_fields=tuple(sorted(unsupported, key=lambda item: item.path)),
     )
 
 
@@ -627,7 +754,7 @@ def extract_scan_ruleset_list_item_name(item: object, *, index: int) -> str:
     if not isinstance(name, str):
         _raise(
             "remote_state.malformed_list_item",
-            "list item name must be a string",
+            "list item name is not a valid scanRulesetName",
             *(*path_base, "name"),
         )
     try:

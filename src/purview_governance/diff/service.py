@@ -10,7 +10,7 @@ from purview_governance.desired.models import (
 )
 from purview_governance.diff.models import DiffDocument, DiffItem, DiffOutcome, DiffReason
 from purview_governance.diff.reasons import reason, sort_reasons
-from purview_governance.remote_state.canonical import dumps_canonical
+from purview_governance.remote_state.canonical import canonical_json_scalar, dumps_canonical
 from purview_governance.remote_state.models import (
     NormalizedDataSource,
     NormalizedScan,
@@ -21,6 +21,7 @@ from purview_governance.remote_state.models import (
     UninterpretedScan,
     UninterpretedScanRuleSet,
     UnknownLegacyMovingState,
+    UnsupportedConfigurableField,
 )
 
 _TYPE_RANK: dict[str, int] = {"dataSource": 0, "scanRuleSet": 1, "scan": 2}
@@ -257,10 +258,12 @@ def _scan_creation_ownership_blocks(remote: NormalizedScan) -> bool:
     return remote.creation_type in {"AutoNative", "AutoManaged"}
 
 
-def _unsupported_configurable_reasons(remote: NormalizedScan) -> list[DiffReason]:
+def _unsupported_configurable_reasons(
+    fields: tuple[UnsupportedConfigurableField, ...],
+) -> list[DiffReason]:
     return [
-        reason("remote.unsupported_configurable_field", path)
-        for path in sorted(remote.unsupported_configurable_fields)
+        reason("remote.unsupported_configurable_field", field.path)
+        for field in sorted(fields, key=lambda item: item.path)
     ]
 
 
@@ -270,7 +273,7 @@ def _compare_scan(desired: ScanDesiredState, remote: NormalizedScan) -> DiffItem
 
     if remote.unsupported_configurable_fields:
         blocking = True
-        reasons.extend(_unsupported_configurable_reasons(remote))
+        reasons.extend(_unsupported_configurable_reasons(remote.unsupported_configurable_fields))
 
     if _scan_creation_ownership_blocks(remote):
         blocking = True
@@ -363,7 +366,7 @@ def _item_for_uninterpreted_scan(
 
 
 def _item_remote_only_scan(remote: NormalizedScan) -> DiffItem:
-    reasons = _unsupported_configurable_reasons(remote)
+    reasons = _unsupported_configurable_reasons(remote.unsupported_configurable_fields)
     reasons.extend(_scan_creation_ownership_reasons(remote))
     reasons.append(reason("remote.absent_desired", "/"))
     return DiffItem(
@@ -428,16 +431,16 @@ def _canonical_string_list(values: tuple[str, ...]) -> str:
     return dumps_canonical(list(values))
 
 
-def _description_value(value: str | None) -> str:
-    return "" if value is None else value
-
-
 def _compare_scan_rule_set(
     desired: ScanRuleSetDesiredState,
     remote: NormalizedScanRuleSet,
 ) -> DiffItem:
     reasons: list[DiffReason] = []
     blocking = False
+
+    if remote.unsupported_configurable_fields:
+        blocking = True
+        reasons.extend(_unsupported_configurable_reasons(remote.unsupported_configurable_fields))
 
     if desired.kind != remote.kind:
         blocking = True
@@ -493,13 +496,15 @@ def _compare_scan_rule_set(
             )
         )
 
+    # Compare Python values; encode before/after with unambiguous JSON scalars
+    # so None (null) and "" (JSON empty string) remain distinct in plan reasons.
     if desired.description != remote.description:
         reasons.append(
             reason(
                 "properties.description.changed",
                 "/properties/description",
-                before=_description_value(remote.description),
-                after=_description_value(desired.description),
+                before=canonical_json_scalar(remote.description),
+                after=canonical_json_scalar(desired.description),
             )
         )
 
@@ -576,11 +581,13 @@ def _item_for_uninterpreted_scan_rule_set(
 
 
 def _item_remote_only_scan_rule_set(remote: NormalizedScanRuleSet) -> DiffItem:
+    reasons = _unsupported_configurable_reasons(remote.unsupported_configurable_fields)
+    reasons.append(reason("remote.absent_desired", "/"))
     return DiffItem(
         name=remote.name,
         resource_type="scanRuleSet",
         outcome="remote-only",
-        reasons=sort_reasons([reason("remote.absent_desired", "/")]),
+        reasons=sort_reasons(reasons),
     )
 
 

@@ -129,7 +129,43 @@
                     "properties": {
                       "fileExtensions": {
                         "type": "array",
-                        "items": { "type": "string", "minLength": 1 }
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "AVRO",
+                            "CSV",
+                            "DOC",
+                            "DOCM",
+                            "DOCX",
+                            "DOT",
+                            "Documents",
+                            "GZ",
+                            "JSON",
+                            "ODP",
+                            "ODS",
+                            "ODT",
+                            "ORC",
+                            "PARQUET",
+                            "PDF",
+                            "POT",
+                            "PPS",
+                            "PPSX",
+                            "PPT",
+                            "PPTM",
+                            "PPTX",
+                            "PSV",
+                            "SSV",
+                            "TSV",
+                            "TXT",
+                            "XLC",
+                            "XLS",
+                            "XLSB",
+                            "XLSM",
+                            "XLSX",
+                            "XLT",
+                            "XML"
+                          ]
+                        }
                       }
                     }
                   },
