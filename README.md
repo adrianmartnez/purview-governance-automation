@@ -8,10 +8,11 @@ Data Source planning and safe explicit apply workflows.
 Stable package version: `1.0.0` (v1.0 released / stable).
 
 `main` develops toward **v1.1** as package `1.1.0.dev0` (Scans, Custom Scan
-Rule Sets, and Custom Classification Rules: config/remote/diff/plan v2 for
-read/compare/inspect-only). Apply remains plan/v1; classification rules have no
-apply path. Explicit unsupported Scan configurables block safe comparison.
-No live-tenant validation claim.
+Rule Sets, and Custom Classification Rules: config/remote/diff/plan/apply v2).
+Controlled multi-resource apply accepts plan/v2 with dry-run default; plan/v1
+apply and execution-result/v1 remain frozen. No automatic deletes. Explicit
+unsupported Scan configurables block safe comparison. No live-tenant validation
+claim.
 
 Package SemVer is independent of machine-contract versions
 (`purview-governance-config/v1`, `purview-remote-state/v1`,
@@ -32,10 +33,11 @@ Package SemVer is independent of machine-contract versions
 - deterministic loopback contract-test server
 - read-only remote-state `purview-remote-state/v1`
 - desired-vs-remote diff (create/replace/no-op/remote-only/blocked; no delete)
-- versioned plan `purview-governance-plan/v1`
+- versioned plan `purview-governance-plan/v1` and `/v2`
 - safe explicit apply (`execute_governance_plan`) with dry-run default
-- execution result `purview-execution-result/v1` with `resultIdentity`
-- complete v1 CLI workflows
+  (plan/v1 → execution-result/v1; plan/v2 → execution-result/v2)
+- execution result `purview-execution-result/v1` (frozen) and `/v2`
+- complete v1 CLI workflows (apply accepts plan/v2)
 
 ### Contract-tested offline
 
@@ -47,8 +49,8 @@ does **not** claim live-tenant validation.
 ### Not claimed / not implemented
 
 - Data Source kinds beyond AzureStorage
-- Scan / Custom SRS / Custom Classification Rule **mutation** (apply remains
-  plan/v1; plan/v2 is inspect-only; no classification apply)
+- Scan / SRS / Classification Rule kinds beyond the supported AzureStorage /
+  Custom / AzureStorageMsi slice
 - Unified Catalog (v1.2)
 - automatic deletes
 - production-scale operational hardening
@@ -69,7 +71,8 @@ Preflight order (fail-closed; zero PUT until complete):
 3. `executionEligibility` + create/replace-only operations
 4. bind logical target (`client.target_endpoint`) vs plan target
 5. materialize all mutation payloads from the plan desired snapshot
-6. fresh `capture_remote_state` (List+Get)
+6. fresh remote-state capture (`capture_remote_state` for plan/v1;
+   `capture_remote_state_v2` for plan/v2)
 7. compare `materialStateIdentity` to `plan.identities.remoteState`
 8. dry-run (ready, zero PUT) or apply (sequential PUTs)
 
