@@ -101,11 +101,15 @@ jobs:
           test -f "$ROOT/src/purview_governance/cli.py"
           test -f "$ROOT/src/purview_governance/__main__.py"
           test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v1.json"
+          test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v2.json"
           test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v1.json"
+          test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v2.json"
           test -f "$ROOT/src/purview_governance/plan/schemas/purview_governance_plan_v1.json"
+          test -f "$ROOT/src/purview_governance/plan/schemas/purview_governance_plan_v2.json"
           test -f "$ROOT/src/purview_governance/apply/schemas/purview_execution_result_v1.json"
           test -f "$ROOT/src/purview_governance/apply/schemas/purview_execution_result_v2.json"
           test -f "$ROOT/examples/fictional-governance-config.yaml"
+          test -f "$ROOT/examples/fictional-governance-config-v2.yaml"
 
           python -m venv "$RUNNER_TEMP/venv-wheel"
           # shellcheck disable=SC1091
@@ -210,6 +214,8 @@ jobs:
           python -m purview_governance --help | grep -F "purview-governance"
           printf '%s\n' 'apiVersion: purview-governance-config/v1' 'target:' '  endpoint: https://contoso-fictional.purview.azure.com' 'authentication:' '  strategy: defaultAzureCredential' 'resources: []' > fictional.yaml
           purview-governance config validate fictional.yaml | grep -F "config valid"
+          # Validate the public v2 example from the checkout (examples/ are not in the wheel).
+          purview-governance config validate "$GITHUB_WORKSPACE/examples/fictional-governance-config-v2.yaml" | grep -F "config valid"
           python -c "from pathlib import Path; from purview_governance.apply import ExecutionMode, build_execution_result_from_parts; from purview_governance.config import validate_config_text; from purview_governance.plan import build_governance_plan; from purview_governance.remote_state import build_remote_state; cfg=validate_config_text(Path('fictional.yaml').read_text(encoding='utf-8'), format_hint='yaml'); plan=build_governance_plan(cfg, build_remote_state((), ())); Path('plan.json').write_text(plan.to_canonical_json(), encoding='utf-8'); h=plan.plan_identity; result=build_execution_result_from_parts(plan_identity=h, planned_target_context_identity=plan.target_context.identity, execution_target_context_identity=plan.target_context.identity, planned_remote_state_identity=plan.identities.remote_state, observed_remote_state_identity=plan.identities.remote_state, mode=ExecutionMode.DRY_RUN, status='dry-run-ready', writes_performed=0, writes_attempted=0, writes_unknown=0, operations=(), failure=None); Path('result.json').write_text(result.to_canonical_json(), encoding='utf-8'); print('artifacts-ok', plan.plan_identity, result.result_identity)"
           purview-governance plan inspect plan.json | grep -F "planIdentity:"
           purview-governance result inspect result.json | grep -F "resultIdentity:"

@@ -5,19 +5,20 @@ All notable changes to this project are documented in this file.
 The format is inspired by [Keep a Changelog](https://keepachangelog.com/),
 and this project uses [Semantic Versioning](https://semver.org/) for the
 **Python package**. Package SemVer is independent of machine-contract versions
-(`purview-*-config/v1`, plan/result/remote-state `/v1`). Contract `v1` does not
-mean package version `1.0.0`; a future package `1.x` may keep contract `v1`
-while those artifacts remain compatible.
+(`purview-*-config/v1` + `/v2`, plan/result/remote-state `/v1` + `/v2`).
+Contract `v1` does not mean package version `1.0.0`; a future package `1.x` may
+keep contract `v1` while those artifacts remain compatible.
 
 ## [Unreleased]
 
-Development toward package `1.1.0.dev0` (stable remains `1.0.0`).
+Development toward stable package `1.1.0`; current development package is
+`1.1.0.dev0` (stable remains `1.0.0`).
 
 ### Added
 
 - Config / remote-state / plan **v2** contracts for AzureStorage **Scans**,
   **Custom AzureStorage Scan Rule Sets**, and **Custom Classification Rules**
-  (read, compare, and inspectable plan).
+  (read, compare, deterministic plan, and controlled apply).
 - Multi-resource desired-vs-remote diff (data sources, classification rules,
   scans, scan rule sets).
 - Controlled multi-resource apply for `purview-governance-plan/v2` (Data
@@ -27,6 +28,11 @@ Development toward package `1.1.0.dev0` (stable remains `1.0.0`).
 - Loopback contract coverage for Scan, Scan Rule Set, and Classification Rule
   list/get/create-or-replace (including pagination fail-closed cases and
   idempotent re-planning).
+- Fictional multi-resource example `examples/fictional-governance-config-v2.yaml`
+  and offline CLI reviewer workflow
+  `tests/cli/test_offline_v2_workflow.py` (validate → independent remote
+  capture → plan create/inspect → dry-run → explicit apply → result inspect →
+  empty re-plan → no-op apply; no Azure credentials).
 
 ### Changed
 
