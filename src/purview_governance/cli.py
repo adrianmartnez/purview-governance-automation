@@ -1,4 +1,4 @@
-"""argparse CLI for purview-governance v1 workflows."""
+"""argparse CLI for purview-governance v1/v2 workflows."""
 
 from __future__ import annotations
 
@@ -80,7 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     remote_parser = sub.add_parser("remote-state", help="Remote-state workflows")
     remote_sub = remote_parser.add_subparsers(dest="remote_command", required=True)
-    remote_capture = remote_sub.add_parser("capture", help="Capture read-only remote state")
+    remote_capture = remote_sub.add_parser(
+        "capture",
+        help="Capture an independent read-only remote-state snapshot (not plan input)",
+    )
     remote_capture.add_argument("config")
     remote_capture.add_argument("--output", required=True)
     remote_capture.add_argument("--force", action="store_true")
@@ -88,7 +91,8 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser = sub.add_parser("plan", help="Plan workflows")
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
     plan_create = plan_sub.add_parser(
-        "create", help="Create a governance plan from live remote state"
+        "create",
+        help=("Fresh remote capture, desired-vs-remote comparison, and deterministic plan"),
     )
     plan_create.add_argument("config")
     plan_create.add_argument("--output", required=True)

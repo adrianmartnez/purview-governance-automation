@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "purview-governance-automation"
 dynamic = ["version"]
-description = "Microsoft Purview governance automation: versioned config, Entra auth, Scanning Data Plane client (2023-09-01), remote-state, desired-state diff, governance plans, safe explicit apply, execution results, and v1 CLI workflows."
+description = "Microsoft Purview governance automation: versioned config/remote/plan/result (v1+v2), Entra auth, Scanning Data Plane client (2023-09-01), desired-state diff, safe explicit apply, and CLI workflows for validate/capture/plan/inspect/dry-run/apply."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

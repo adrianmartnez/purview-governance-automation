@@ -1,0 +1,65 @@
+# Fictional sample — not a live Microsoft Purview account.
+# Example only: validates against purview-governance-config/v2.
+# Demonstrates AzureStorage Data Sources, a Custom Classification Rule,
+# a Custom AzureStorage Scan Rule Set, and AzureStorageMsi Scans with
+# composite identity (same scan name under different data sources).
+apiVersion: purview-governance-config/v2
+target:
+  endpoint: https://contoso-fictional.purview.azure.com
+authentication:
+  strategy: defaultAzureCredential
+resources:
+  - type: dataSource
+    name: ds-a
+    kind: AzureStorage
+    properties:
+      endpoint: https://a.blob.core.windows.net/
+      collection:
+        referenceName: root
+  - type: dataSource
+    name: ds-b
+    kind: AzureStorage
+    properties:
+      endpoint: https://b.blob.core.windows.net/
+      collection:
+        referenceName: root
+  - type: classificationRule
+    name: custom-rule
+    kind: Custom
+    properties:
+      classificationName: Contoso.Secret
+      minimumPercentageMatch: 80.0
+      ruleStatus: Enabled
+      dataPatterns:
+        - kind: Regex
+          pattern: "^[0-9]+$"
+      columnPatterns:
+        - kind: Regex
+          pattern: "^col$"
+  - type: scanRuleSet
+    name: custom-srs
+    kind: AzureStorage
+    scanRulesetType: Custom
+    properties:
+      scanningRule:
+        fileExtensions: [CSV, JSON]
+      excludedSystemClassifications: []
+      includedCustomClassificationRuleNames: [custom-rule]
+  - type: scan
+    name: DailyScan
+    kind: AzureStorageMsi
+    properties:
+      dataSourceName: ds-a
+      scanRulesetName: custom-srs
+      scanRulesetType: Custom
+      collection:
+        referenceName: root
+  - type: scan
+    name: DailyScan
+    kind: AzureStorageMsi
+    properties:
+      dataSourceName: ds-b
+      scanRulesetName: AzureStorage
+      scanRulesetType: System
+      collection:
+        referenceName: root
