@@ -11,24 +11,27 @@ keep contract `v1` while those artifacts remain compatible.
 
 ## [Unreleased]
 
-Development toward stable package `1.1.0`; current development package is
-`1.1.0.dev0` (stable remains `1.0.0`).
+## [1.1.0] - 2026-08-11
+
+First stable package release of Scanning and Classification as Code
+(multi-resource config/remote-state/plan/apply v2).
 
 ### Added
 
-- Config / remote-state / plan **v2** contracts for AzureStorage **Scans**,
-  **Custom AzureStorage Scan Rule Sets**, and **Custom Classification Rules**
-  (read, compare, deterministic plan, and controlled apply).
-- Multi-resource desired-vs-remote diff (data sources, classification rules,
-  scans, scan rule sets).
-- Controlled multi-resource apply for `purview-governance-plan/v2` (Data
-  Sources, Custom Classification Rules, Custom AzureStorage Scan Rule Sets,
-  AzureStorageMsi Scans) with dry-run default, fresh `purview-remote-state/v2`
-  staleness gate, fail-closed writes, and `purview-execution-result/v2`.
+- Config / remote-state / plan **v2** contracts for AzureStorage **Data Sources**,
+  AzureStorageMsi **Scans**, **Custom AzureStorage Scan Rule Sets**, and
+  **Custom Classification Rules** (read, compare, deterministic plan, and
+  controlled apply).
+- Multi-resource desired-vs-remote comparison (data sources, classification
+  rules, scans, scan rule sets), including composite Scan identity and
+  deterministic prerequisite ordering.
+- Controlled multi-resource apply for `purview-governance-plan/v2` with dry-run
+  default, explicit apply opt-in, fresh `purview-remote-state/v2` staleness gate,
+  fail-closed writes, and `purview-execution-result/v2`.
 - Loopback contract coverage for Scan, Scan Rule Set, and Classification Rule
-  list/get/create-or-replace (including pagination fail-closed cases and
-  idempotent re-planning).
-- Fictional multi-resource example `examples/fictional-governance-config-v2.yaml`
+  list/get/create-or-replace (including pagination fail-closed cases, contract-
+  tested failure classes, and idempotent re-planning).
+- Public multi-resource example `examples/fictional-governance-config-v2.yaml`
   and offline CLI reviewer workflow
   `tests/cli/test_offline_v2_workflow.py` (validate → independent remote
   capture → plan create/inspect → dry-run → explicit apply → result inspect →
@@ -50,7 +53,8 @@ Development toward stable package `1.1.0`; current development package is
   Version.
 - Explicit unsupported Scan configurable fields block safe comparison
   (`remote.unsupported_configurable_field`).
-- No claim of validation against a live Microsoft Purview tenant.
+- No claim of validation against a live Microsoft Purview tenant. Offline
+  contract tests are not production or live Microsoft Purview validation.
 
 ## [1.0.0] - 2026-08-10
 
