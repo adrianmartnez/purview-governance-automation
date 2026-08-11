@@ -1377,7 +1377,7 @@ def _bind_reason_after_to_desired_v2(
 
 
 def _validate_plan_document_semantics_v2(document: dict[str, Any]) -> None:
-    """Validate semantic integrity of plan/v2 (inspect-only multi-resource)."""
+    """Validate semantic integrity of multi-resource plan/v2."""
     config_api = document.get("configurationApiVersion")
     if config_api not in {CONFIGURATION_API_VERSION, CONFIGURATION_API_VERSION_V2}:
         _raise_integrity(
