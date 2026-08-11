@@ -130,6 +130,98 @@ def test_invalid_action_and_version() -> None:
         )
 
 
+def test_unhashable_enum_values_fail_closed() -> None:
+    cases = [
+        {"ruleStatus": []},
+        {"ruleStatus": {}},
+        {"ruleStatus": 123},
+        {"ruleStatus": None},
+        {"classificationAction": []},
+        {"classificationAction": {}},
+        {"classificationAction": 123},
+        {"classificationAction": None},
+    ]
+    for overrides in cases:
+        with pytest.raises(RemoteStateError) as exc:
+            normalize_custom_classification_rule_get(
+                _custom_body(**overrides),
+                requested_name="RuleOne",
+            )
+        assert exc.value.code == "remote_state.invalid_shape"
+
+
+def test_huge_minimum_percentage_match_fail_closed() -> None:
+    with pytest.raises(RemoteStateError) as exc:
+        normalize_custom_classification_rule_get(
+            _custom_body(minimumPercentageMatch=10**10000),
+            requested_name="RuleOne",
+        )
+    assert exc.value.code == "remote_state.invalid_shape"
+
+
+def test_observational_id_and_timestamps() -> None:
+    # Official sample timestamps accepted.
+    normalize_custom_classification_rule_get(_custom_body(), requested_name="RuleOne")
+
+    body = _custom_body()
+    del body["id"]
+    del body["properties"]["createdAt"]
+    del body["properties"]["lastModifiedAt"]
+    normalize_custom_classification_rule_get(body, requested_name="RuleOne")
+
+    with pytest.raises(RemoteStateError) as exc:
+        normalize_custom_classification_rule_get(
+            {**_custom_body(), "id": None},
+            requested_name="RuleOne",
+        )
+    assert exc.value.code == "remote_state.invalid_shape"
+
+    with pytest.raises(RemoteStateError):
+        normalize_custom_classification_rule_get(
+            {**_custom_body(), "id": 123},
+            requested_name="RuleOne",
+        )
+
+    with pytest.raises(RemoteStateError):
+        normalize_custom_classification_rule_get(
+            _custom_body(createdAt=None),
+            requested_name="RuleOne",
+        )
+    with pytest.raises(RemoteStateError):
+        normalize_custom_classification_rule_get(
+            _custom_body(createdAt="not-a-date"),
+            requested_name="RuleOne",
+        )
+    with pytest.raises(RemoteStateError):
+        normalize_custom_classification_rule_get(
+            _custom_body(lastModifiedAt="2019-12-09T07:04:53.2807344"),
+            requested_name="RuleOne",
+        )
+
+
+def test_int32_version_bounds_runtime() -> None:
+    from purview_governance.remote_state.classification_policy import INT32_MAX, INT32_MIN
+
+    normalize_custom_classification_rule_get(
+        _custom_body(version=INT32_MIN),
+        requested_name="RuleOne",
+    )
+    normalize_custom_classification_rule_get(
+        _custom_body(version=INT32_MAX),
+        requested_name="RuleOne",
+    )
+    with pytest.raises(RemoteStateError):
+        normalize_custom_classification_rule_get(
+            _custom_body(version=INT32_MIN - 1),
+            requested_name="RuleOne",
+        )
+    with pytest.raises(RemoteStateError):
+        normalize_custom_classification_rule_get(
+            _custom_body(version=INT32_MAX + 1),
+            requested_name="RuleOne",
+        )
+
+
 def test_absent_action_version_ok() -> None:
     body = _custom_body()
     del body["properties"]["classificationAction"]

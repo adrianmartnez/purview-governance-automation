@@ -29,3 +29,9 @@ def test_rejects_bool_nan_inf() -> None:
         canonicalize_finite_double(-math.inf)
     with pytest.raises(FiniteDoubleError):
         canonicalize_finite_double("80")
+
+
+def test_rejects_huge_integer_overflow() -> None:
+    with pytest.raises(FiniteDoubleError) as exc:
+        canonicalize_finite_double(10**10000)
+    assert "representable" in exc.value.message

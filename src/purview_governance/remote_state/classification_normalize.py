@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from purview_governance.finite_double import FiniteDoubleError, canonicalize_finite_double
+from purview_governance.remote_state.api_datetime import validate_api_datetime_string
 from purview_governance.remote_state.canonical import compute_value_identity
 from purview_governance.remote_state.classification_policy import (
     CLASSIFICATION_ACTIONS,
@@ -139,6 +140,12 @@ def normalize_custom_classification_rule_get(
         )
 
     kind = body.get("kind")
+    if not isinstance(kind, str):
+        _raise(
+            "remote_state.invalid_shape",
+            "kind must be a string",
+            "kind",
+        )
     if kind != SUPPORTED_CLASSIFICATION_RULE_KIND:
         _raise(
             "remote_state.unsupported_kind",
@@ -146,12 +153,20 @@ def normalize_custom_classification_rule_get(
             "kind",
         )
 
-    if "id" in body and body["id"] is not None and not isinstance(body["id"], str):
-        _raise(
-            "remote_state.invalid_observed_property",
-            "id must be a string when present",
-            "id",
-        )
+    if "id" in body:
+        raw_id = body["id"]
+        if raw_id is None:
+            _raise(
+                "remote_state.invalid_shape",
+                "id must not be null",
+                "id",
+            )
+        if not isinstance(raw_id, str):
+            _raise(
+                "remote_state.invalid_shape",
+                "id must be a string when present",
+                "id",
+            )
 
     properties = _require_object(body.get("properties"), path_parts=("properties",))
     _reject_unknown_keys(
@@ -161,14 +176,22 @@ def normalize_custom_classification_rule_get(
     )
 
     for volatile in CLASSIFICATION_RULE_VOLATILE_PROPERTY_FIELDS:
-        if (
-            volatile in properties
-            and properties[volatile] is not None
-            and not isinstance(properties[volatile], str)
-        ):
+        if volatile not in properties:
+            continue
+        raw_volatile = properties[volatile]
+        if raw_volatile is None:
             _raise(
                 "remote_state.invalid_shape",
-                f"{volatile} must be a string when present",
+                f"{volatile} must not be null",
+                "properties",
+                volatile,
+            )
+        try:
+            validate_api_datetime_string(raw_volatile)
+        except ValueError as exc:
+            _raise(
+                "remote_state.invalid_shape",
+                f"{volatile} {exc}",
                 "properties",
                 volatile,
             )
@@ -207,6 +230,13 @@ def normalize_custom_classification_rule_get(
         )
 
     rule_status = properties.get("ruleStatus")
+    if not isinstance(rule_status, str):
+        _raise(
+            "remote_state.invalid_shape",
+            "ruleStatus must be a string",
+            "properties",
+            "ruleStatus",
+        )
     if rule_status not in CLASSIFICATION_RULE_STATUSES:
         _raise(
             "remote_state.invalid_shape",
@@ -252,6 +282,13 @@ def normalize_custom_classification_rule_get(
                 "properties",
                 "classificationAction",
             )
+        if not isinstance(action, str):
+            _raise(
+                "remote_state.invalid_shape",
+                "classificationAction must be a string",
+                "properties",
+                "classificationAction",
+            )
         if action not in CLASSIFICATION_ACTIONS:
             _raise(
                 "remote_state.invalid_shape",
@@ -259,7 +296,7 @@ def normalize_custom_classification_rule_get(
                 "properties",
                 "classificationAction",
             )
-        classification_action = action  # type: ignore[assignment]
+        classification_action = action
 
     if version_present:
         raw_version = properties["version"]

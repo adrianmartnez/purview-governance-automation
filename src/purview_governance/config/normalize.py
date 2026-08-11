@@ -359,7 +359,7 @@ def _normalize_classification_rule_resource(
         ) from None
 
     rule_status = props.get("ruleStatus")
-    if rule_status not in {"Enabled", "Disabled"}:
+    if not isinstance(rule_status, str) or rule_status not in {"Enabled", "Disabled"}:
         raise ConfigValidationError(
             (
                 ConfigDiagnostic(

@@ -192,7 +192,11 @@
                 "type": "string",
                 "enum": ["Keep", "Delete"]
               },
-              "version": { "type": "integer" }
+              "version": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              }
             }
           },
           "unsupportedConfigurableFields": {

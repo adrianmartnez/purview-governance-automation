@@ -227,6 +227,21 @@ def test_minimum_percentage_match_rejects_bool_nan_inf() -> None:
         canonicalize_finite_double(math.inf)
 
 
+def test_minimum_percentage_match_rejects_huge_integer() -> None:
+    # Large enough to overflow IEEE-754 float, small enough for YAML/int parsing.
+    huge = "1" + ("0" * 400)
+    with pytest.raises(ConfigValidationError):
+        _validate(
+            _base_yaml(
+                properties=f"""\
+      classificationName: CUSTOM.X
+      minimumPercentageMatch: {huge}
+      ruleStatus: Enabled
+"""
+            )
+        )
+
+
 def test_duplicate_classification_rule_name() -> None:
     text = """
 apiVersion: purview-governance-config/v2

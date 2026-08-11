@@ -17,13 +17,17 @@ class FiniteDoubleError(ValueError):
 def canonicalize_finite_double(value: object) -> float:
     """Validate and canonicalize a finite double for material compare/identity.
 
-    Accepts JSON/YAML numbers that are not bool. Rejects bool, NaN, ±Inf, and
-    non-numeric types. Normalizes to Python ``float`` and maps ``-0.0`` to
-    ``0.0`` so int/float wire syntax (``80`` vs ``80.0``) shares one identity.
+    Accepts JSON/YAML numbers that are not bool. Rejects bool, NaN, ±Inf,
+    overflow outside IEEE-754 double range, and non-numeric types. Normalizes
+    to Python ``float`` and maps ``-0.0`` to ``0.0`` so int/float wire syntax
+    (``80`` vs ``80.0``) shares one identity.
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise FiniteDoubleError("value must be a finite number (not bool)")
-    as_float = float(value)
+    try:
+        as_float = float(value)
+    except OverflowError:
+        raise FiniteDoubleError("value must be representable as a finite IEEE-754 double") from None
     if not math.isfinite(as_float):
         raise FiniteDoubleError("value must be a finite number (not NaN or Infinity)")
     if as_float == 0.0:
