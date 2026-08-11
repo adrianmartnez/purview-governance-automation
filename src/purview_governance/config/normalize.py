@@ -12,9 +12,11 @@ from purview_governance.config.diagnostics import (
 )
 from purview_governance.config.models import (
     AuthenticationConfig,
+    ClassificationRuleResourceConfig,
     DataSourceResourceConfig,
     GovernanceConfig,
     GovernanceResourceConfig,
+    RegexClassificationPattern,
     ScanResourceConfig,
     ScanRuleSetResourceConfig,
     TargetConfig,
@@ -24,6 +26,7 @@ from purview_governance.data_source_endpoint import (
     DataSourceEndpointError,
     validate_data_source_endpoint,
 )
+from purview_governance.finite_double import FiniteDoubleError, canonicalize_finite_double
 
 
 def _invalid_endpoint_error(message: str) -> ConfigValidationError:
@@ -257,6 +260,166 @@ def _sorted_file_extensions(values: object, *, path: tuple[object, ...]) -> tupl
     return tuple(sorted(items))
 
 
+def _normalize_regex_patterns(
+    values: object,
+    *,
+    path: tuple[object, ...],
+) -> tuple[RegexClassificationPattern, ...]:
+    if values is None:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path),
+                    message="pattern array must not be null",
+                ),
+            )
+        )
+    if not isinstance(values, list):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path),
+                    message="pattern array must be an array",
+                ),
+            )
+        )
+    patterns: list[RegexClassificationPattern] = []
+    for index, item in enumerate(values):
+        item_path = (*path, index)
+        if not isinstance(item, dict):
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*item_path),
+                        message="pattern item must be an object",
+                    ),
+                )
+            )
+        kind = item.get("kind")
+        if kind != "Regex":
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*item_path, "kind"),
+                        message="pattern kind must be Regex",
+                    ),
+                )
+            )
+        pattern = item.get("pattern")
+        if not isinstance(pattern, str):
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*item_path, "pattern"),
+                        message="pattern must be a string",
+                    ),
+                )
+            )
+        # Preserve exact Unicode text (no strip/rewrite/compile).
+        patterns.append(RegexClassificationPattern(pattern=pattern))
+    return tuple(patterns)
+
+
+def _normalize_classification_rule_resource(
+    raw: dict[str, Any],
+    *,
+    index: int,
+) -> ClassificationRuleResourceConfig:
+    path_base = ("resources", index)
+    props = _require_props(raw, path_base=path_base)
+
+    classification_name = props.get("classificationName")
+    if not isinstance(classification_name, str):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "classificationName"),
+                    message="classificationName must be a string",
+                ),
+            )
+        )
+
+    try:
+        minimum_percentage_match = canonicalize_finite_double(props.get("minimumPercentageMatch"))
+    except FiniteDoubleError as exc:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "minimumPercentageMatch"),
+                    message=exc.message,
+                ),
+            )
+        ) from None
+
+    rule_status = props.get("ruleStatus")
+    if rule_status not in {"Enabled", "Disabled"}:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "ruleStatus"),
+                    message="ruleStatus must be Enabled or Disabled",
+                ),
+            )
+        )
+
+    description: str | None = None
+    if "description" in props:
+        raw_description = props["description"]
+        if raw_description is None:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "properties", "description"),
+                        message="description must not be null",
+                    ),
+                )
+            )
+        if not isinstance(raw_description, str):
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "properties", "description"),
+                        message="description must be a string",
+                    ),
+                )
+            )
+        description = raw_description
+
+    data_patterns: tuple[RegexClassificationPattern, ...] = ()
+    if "dataPatterns" in props:
+        data_patterns = _normalize_regex_patterns(
+            props["dataPatterns"],
+            path=(*path_base, "properties", "dataPatterns"),
+        )
+    column_patterns: tuple[RegexClassificationPattern, ...] = ()
+    if "columnPatterns" in props:
+        column_patterns = _normalize_regex_patterns(
+            props["columnPatterns"],
+            path=(*path_base, "properties", "columnPatterns"),
+        )
+
+    return ClassificationRuleResourceConfig(
+        name=str(raw["name"]),
+        kind="Custom",
+        classification_name=classification_name,
+        minimum_percentage_match=minimum_percentage_match,
+        rule_status=rule_status,  # type: ignore[arg-type]
+        data_patterns=data_patterns,
+        column_patterns=column_patterns,
+        description=description,
+    )
+
+
 def _normalize_scan_rule_set_resource(
     raw: dict[str, Any],
     *,
@@ -374,6 +537,8 @@ def _normalize_resource(raw: object, *, index: int) -> GovernanceResourceConfig:
     resource_type = raw.get("type")
     if resource_type == "dataSource":
         return _normalize_data_source_resource(raw, index=index)
+    if resource_type == "classificationRule":
+        return _normalize_classification_rule_resource(raw, index=index)
     if resource_type == "scanRuleSet":
         return _normalize_scan_rule_set_resource(raw, index=index)
     if resource_type == "scan":

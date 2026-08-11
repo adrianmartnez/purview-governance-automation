@@ -11,8 +11,13 @@ from purview_governance.data_source_endpoint import validate_data_source_endpoin
 CONFIG_API_VERSION_V1 = "purview-governance-config/v1"
 CONFIG_API_VERSION_V2 = "purview-governance-config/v2"
 
-ResourceTypeRank = Literal["dataSource", "scanRuleSet", "scan"]
-_TYPE_RANK: dict[str, int] = {"dataSource": 0, "scanRuleSet": 1, "scan": 2}
+ResourceTypeRank = Literal["dataSource", "classificationRule", "scanRuleSet", "scan"]
+_TYPE_RANK: dict[str, int] = {
+    "dataSource": 0,
+    "classificationRule": 1,
+    "scanRuleSet": 2,
+    "scan": 3,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +57,51 @@ class DataSourceResourceConfig:
                 "endpoint": self.endpoint,
                 "collection": {"referenceName": self.collection_reference_name},
             },
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RegexClassificationPattern:
+    """Desired Regex classification rule pattern (ordered; not a set)."""
+
+    pattern: str
+
+    def to_document(self) -> dict[str, object]:
+        return {"kind": "Regex", "pattern": self.pattern}
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationRuleResourceConfig:
+    """Desired Custom Classification Rule (config/v2)."""
+
+    name: str
+    kind: Literal["Custom"]
+    classification_name: str
+    minimum_percentage_match: float
+    rule_status: Literal["Enabled", "Disabled"]
+    data_patterns: tuple[RegexClassificationPattern, ...] = ()
+    column_patterns: tuple[RegexClassificationPattern, ...] = ()
+    description: str | None = None
+
+    @property
+    def resource_type(self) -> Literal["classificationRule"]:
+        return "classificationRule"
+
+    def to_document(self) -> dict[str, object]:
+        properties: dict[str, object] = {
+            "classificationName": self.classification_name,
+            "minimumPercentageMatch": self.minimum_percentage_match,
+            "ruleStatus": self.rule_status,
+            "dataPatterns": [item.to_document() for item in self.data_patterns],
+            "columnPatterns": [item.to_document() for item in self.column_patterns],
+        }
+        if self.description is not None:
+            properties["description"] = self.description
+        return {
+            "type": "classificationRule",
+            "name": self.name,
+            "kind": self.kind,
+            "properties": properties,
         }
 
 
@@ -119,7 +169,12 @@ class ScanResourceConfig:
         }
 
 
-GovernanceResourceConfig = DataSourceResourceConfig | ScanRuleSetResourceConfig | ScanResourceConfig
+GovernanceResourceConfig = (
+    DataSourceResourceConfig
+    | ClassificationRuleResourceConfig
+    | ScanRuleSetResourceConfig
+    | ScanResourceConfig
+)
 
 
 def resource_sort_key(resource: GovernanceResourceConfig) -> tuple[int, str, str]:
@@ -150,6 +205,10 @@ class GovernanceConfig:
     @property
     def data_sources(self) -> tuple[DataSourceResourceConfig, ...]:
         return tuple(r for r in self.resources if isinstance(r, DataSourceResourceConfig))
+
+    @property
+    def classification_rules(self) -> tuple[ClassificationRuleResourceConfig, ...]:
+        return tuple(r for r in self.resources if isinstance(r, ClassificationRuleResourceConfig))
 
     @property
     def scan_rule_sets(self) -> tuple[ScanRuleSetResourceConfig, ...]:

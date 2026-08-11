@@ -274,6 +274,7 @@ def _duplicate_resource_identity_diagnostics(
         return []
 
     seen_ds: dict[str, int] = {}
+    seen_cr: dict[str, int] = {}
     seen_srs: dict[str, int] = {}
     seen_scans: dict[tuple[str, str], int] = {}
     diagnostics: list[ConfigDiagnostic] = []
@@ -299,6 +300,20 @@ def _duplicate_resource_identity_diagnostics(
                 )
             else:
                 seen_ds[name] = index
+        elif resource_type == "classificationRule":
+            if name in seen_cr:
+                diagnostics.append(
+                    ConfigDiagnostic(
+                        code="config.duplicate_classification_rule_name",
+                        path=json_pointer("resources", index, "name"),
+                        message=(
+                            f"duplicate Classification Rule name {name!r}; "
+                            f"first seen at /resources/{seen_cr[name]}/name"
+                        ),
+                    )
+                )
+            else:
+                seen_cr[name] = index
         elif resource_type == "scanRuleSet":
             if name in seen_srs:
                 diagnostics.append(
