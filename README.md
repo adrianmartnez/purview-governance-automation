@@ -6,11 +6,13 @@ Microsoft Purview governance automation in Python: declare desired Scanning
 configuration as code, compare it to remote state, produce a deterministic plan,
 and apply create-or-replace mutations only with an explicit opt-in.
 
-Stable package version: `1.0.0` (v1.0 released / stable).
+Stable package version: `1.1.0` (v1.1 Scanning and Classification as Code
+released / stable). Package `1.0.0` remains the historical v1.0 foundation
+release.
 
-`main` develops toward stable **v1.1** as package `1.1.0.dev0` (Scans, Custom
-Scan Rule Sets, and Custom Classification Rules: config/remote/diff/plan/apply
-v2). Controlled multi-resource apply accepts plan/v2 with dry-run default;
+Multi-resource config/remote/diff/plan/apply **v2** covers AzureStorage Data
+Sources, AzureStorageMsi Scans, Custom AzureStorage Scan Rule Sets, and Custom
+Classification Rules. Controlled apply accepts plan/v2 with dry-run default;
 plan/v1 apply and execution-result/v1 remain frozen. No automatic deletes.
 Explicit unsupported Scan configurables block safe comparison. No live-tenant
 validation claim.
@@ -247,9 +249,9 @@ CHANGELOG.md
 ## Current roadmap
 
 - v1.0 — Purview Automation Foundation (**stable / released** as package `1.0.0`)
-- v1.1 — Scanning and Classification as Code (**in development** on `main` as
-  package `1.1.0.dev0`; stable `1.1.0` is a separate release issue)
-- v1.2 — Unified Catalog Governance
+- v1.1 — Scanning and Classification as Code (**stable / released** as package
+  `1.1.0`)
+- v1.2 — Unified Catalog Governance (next development milestone)
 - v1.3 — Governance Drift and Operations
 - v2.0 — Enterprise Automation and Extensibility
 
