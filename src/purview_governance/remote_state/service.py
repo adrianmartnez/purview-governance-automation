@@ -6,13 +6,22 @@ from typing import Any, Protocol
 
 from jsonschema import Draft202012Validator
 
+from purview_governance.remote_state.classification_normalize import (
+    extract_classification_rule_list_item,
+    normalize_custom_classification_rule_get,
+)
+from purview_governance.remote_state.classification_policy import (
+    SUPPORTED_CLASSIFICATION_RULE_KIND,
+)
 from purview_governance.remote_state.errors import RemoteStateError
 from purview_governance.remote_state.models import (
+    NormalizedClassificationRule,
     NormalizedDataSource,
     NormalizedScan,
     NormalizedScanRuleSet,
     RemoteState,
     RemoteStateV2,
+    UninterpretedClassificationRule,
     UninterpretedDataSource,
     UninterpretedScan,
     UninterpretedScanRuleSet,
@@ -41,11 +50,13 @@ from purview_governance.remote_state.schema import (
     load_remote_state_v2_schema,
 )
 from purview_governance.scanning.client import (
+    ClassificationRuleListResult,
     DataSourceListResult,
     ScanListResult,
     ScanRuleSetListResult,
 )
 from purview_governance.scanning.names import (
+    validate_classification_rule_name,
     validate_data_source_name,
     validate_scan_name,
     validate_scan_ruleset_name,
@@ -61,11 +72,15 @@ class DataSourceReadClient(Protocol):
 
 
 class ScanningReadClient(Protocol):
-    """Read-only seam for remote-state/v2 capture (DS + Scans + Custom SRS)."""
+    """Read-only seam for remote-state/v2 capture (DS + CR + Scans + Custom SRS)."""
 
     def list_data_sources(self) -> DataSourceListResult: ...
 
     def get_data_source(self, name: str) -> dict[str, Any]: ...
+
+    def list_classification_rules(self) -> ClassificationRuleListResult: ...
+
+    def get_classification_rule(self, name: str) -> dict[str, Any]: ...
 
     def list_scans(self, data_source_name: str) -> ScanListResult: ...
 
@@ -178,6 +193,50 @@ def capture_remote_state(client: DataSourceReadClient) -> RemoteState:
             "failed to validate remote-state artifact",
         ) from None
     return state
+
+
+def _capture_classification_rules(
+    client: ScanningReadClient,
+) -> tuple[list[NormalizedClassificationRule], list[UninterpretedClassificationRule]]:
+    listed = client.list_classification_rules()
+    custom_names: list[str] = []
+    uninterpreted: list[UninterpretedClassificationRule] = []
+    seen: set[str] = set()
+    for index, item in enumerate(listed.items):
+        reject_sensitive_keys(item)
+        name, kind = extract_classification_rule_list_item(item, index=index)
+        if name in seen:
+            raise RemoteStateError(
+                "remote_state.duplicate_name",
+                "duplicate Classification Rule name in list results",
+                path=f"/value/{index}/name",
+            )
+        seen.add(name)
+        if kind != SUPPORTED_CLASSIFICATION_RULE_KIND:
+            uninterpreted.append(
+                UninterpretedClassificationRule(
+                    name=name,
+                    kind=kind,
+                    reason_code="remote_state.unsupported_kind",
+                )
+            )
+            continue
+        custom_names.append(name)
+
+    custom_names.sort()
+    normalized: list[NormalizedClassificationRule] = []
+    for name in custom_names:
+        validate_classification_rule_name(name)
+        body = client.get_classification_rule(name)
+        if not isinstance(body, dict):
+            raise RemoteStateError(
+                "remote_state.invalid_shape",
+                "GET response must be a JSON object",
+            )
+        reject_sensitive_keys(body)
+        normalized.append(normalize_custom_classification_rule_get(body, requested_name=name))
+
+    return normalized, uninterpreted
 
 
 def _capture_scans_for_supported_parents(
@@ -367,12 +426,15 @@ def _capture_scan_rule_sets(
 
 
 def capture_remote_state_v2(client: ScanningReadClient) -> RemoteStateV2:
-    """Capture purview-remote-state/v2 (DS + Scans under supported parents + Custom SRS).
+    """Capture purview-remote-state/v2 (DS + Custom CR + Scans + Custom SRS).
 
     Read-only: never calls create-or-replace / PUT / delete.
     Scans are listed/gotten only for parents already normalized as AzureStorage.
+    System (and other non-Custom) Classification Rules are accounted from LIST
+    without GET.
     """
     data_sources, uninterpreted_data_sources = _capture_data_sources(client)
+    classification_rules, uninterpreted_classification_rules = _capture_classification_rules(client)
     scans, uninterpreted_scans = _capture_scans_for_supported_parents(
         client,
         data_sources,
@@ -382,6 +444,8 @@ def capture_remote_state_v2(client: ScanningReadClient) -> RemoteStateV2:
     state = build_remote_state_v2(
         tuple(data_sources),
         tuple(uninterpreted_data_sources),
+        tuple(classification_rules),
+        tuple(uninterpreted_classification_rules),
         tuple(scans),
         tuple(uninterpreted_scans),
         tuple(scan_rule_sets),

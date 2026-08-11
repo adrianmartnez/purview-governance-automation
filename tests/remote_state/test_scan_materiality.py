@@ -166,7 +166,7 @@ def test_malformed_bool_for_integer_fails() -> None:
 
 def _remote_identity_for_scan(**property_overrides: Any) -> str:
     scan = _normalize(**property_overrides)
-    state = build_remote_state_v2((), (), (scan,), (), (), ())
+    state = build_remote_state_v2((), (), (), (), (scan,), (), (), ())
     return state.material_state_identity
 
 
@@ -196,8 +196,8 @@ def test_equivalent_object_different_key_order_same_value_and_material_identity(
     assert result_a.unsupported_configurable_fields[0].value_identity == (
         result_b.unsupported_configurable_fields[0].value_identity
     )
-    state_a = build_remote_state_v2((), (), (result_a,), (), (), ())
-    state_b = build_remote_state_v2((), (), (result_b,), (), (), ())
+    state_a = build_remote_state_v2((), (), (), (), (result_a,), (), (), ())
+    state_b = build_remote_state_v2((), (), (), (), (result_b,), (), (), ())
     assert state_a.material_state_identity == state_b.material_state_identity
 
 

@@ -243,6 +243,92 @@ class UninterpretedScan:
 
 
 @dataclass(frozen=True, slots=True)
+class RegexClassificationPatternRemote:
+    """Remote Regex classification pattern (ordered; exact pattern text)."""
+
+    pattern: str
+
+    def to_document(self) -> dict[str, str]:
+        return {"kind": "Regex", "pattern": self.pattern}
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationRuleSeparatelyManagedProperties:
+    """Separately managed remote fields (Tag Classification Version surface)."""
+
+    classification_action: Literal["Keep", "Delete"] | None = None
+    version: int | None = None
+
+    def to_document(self) -> dict[str, Any]:
+        doc: dict[str, Any] = {}
+        if self.classification_action is not None:
+            doc["classificationAction"] = self.classification_action
+        if self.version is not None:
+            doc["version"] = self.version
+        return doc
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedClassificationRule:
+    """Normalized Custom remote Classification Rule (no raw body)."""
+
+    name: str
+    kind: Literal["Custom"]
+    classification_name: str
+    minimum_percentage_match: float
+    rule_status: Literal["Enabled", "Disabled"]
+    data_patterns: tuple[RegexClassificationPatternRemote, ...] = ()
+    column_patterns: tuple[RegexClassificationPatternRemote, ...] = ()
+    description: str | None = None
+    separately_managed: ClassificationRuleSeparatelyManagedProperties = field(
+        default_factory=ClassificationRuleSeparatelyManagedProperties
+    )
+    unsupported_configurable_fields: tuple[UnsupportedConfigurableField, ...] = ()
+
+    def to_document(self) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "classificationName": self.classification_name,
+            "minimumPercentageMatch": self.minimum_percentage_match,
+            "ruleStatus": self.rule_status,
+            "dataPatterns": [item.to_document() for item in self.data_patterns],
+            "columnPatterns": [item.to_document() for item in self.column_patterns],
+        }
+        if self.description is not None:
+            properties["description"] = self.description
+        doc: dict[str, Any] = {
+            "type": "classificationRule",
+            "name": self.name,
+            "kind": self.kind,
+            "properties": properties,
+        }
+        separately_doc = self.separately_managed.to_document()
+        if separately_doc:
+            doc["separatelyManagedProperties"] = separately_doc
+        if self.unsupported_configurable_fields:
+            doc["unsupportedConfigurableFields"] = [
+                item.to_document()
+                for item in sorted(self.unsupported_configurable_fields, key=lambda f: f.path)
+            ]
+        return doc
+
+
+@dataclass(frozen=True, slots=True)
+class UninterpretedClassificationRule:
+    """Accounted remote Classification Rule that cannot be safely normalized as Custom."""
+
+    name: str
+    kind: str
+    reason_code: str
+
+    def to_document(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "kind": self.kind,
+            "reasonCode": self.reason_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedScanRuleSet:
     """Normalized Custom AzureStorage remote Scan Rule Set (no raw body)."""
 
@@ -302,6 +388,8 @@ class RemoteStateV2:
 
     data_sources: tuple[NormalizedDataSource, ...]
     uninterpreted_data_sources: tuple[UninterpretedDataSource, ...]
+    classification_rules: tuple[NormalizedClassificationRule, ...]
+    uninterpreted_classification_rules: tuple[UninterpretedClassificationRule, ...]
     scans: tuple[NormalizedScan, ...]
     uninterpreted_scans: tuple[UninterpretedScan, ...]
     scan_rule_sets: tuple[NormalizedScanRuleSet, ...]
@@ -315,6 +403,10 @@ class RemoteStateV2:
             "dataSources": [item.to_document() for item in self.data_sources],
             "uninterpretedDataSources": [
                 item.to_document() for item in self.uninterpreted_data_sources
+            ],
+            "classificationRules": [item.to_document() for item in self.classification_rules],
+            "uninterpretedClassificationRules": [
+                item.to_document() for item in self.uninterpreted_classification_rules
             ],
             "scans": [item.to_document() for item in self.scans],
             "uninterpretedScans": [item.to_document() for item in self.uninterpreted_scans],
@@ -336,6 +428,8 @@ class RemoteStateV2:
 def build_remote_state_v2(
     data_sources: tuple[NormalizedDataSource, ...],
     uninterpreted_data_sources: tuple[UninterpretedDataSource, ...],
+    classification_rules: tuple[NormalizedClassificationRule, ...],
+    uninterpreted_classification_rules: tuple[UninterpretedClassificationRule, ...],
     scans: tuple[NormalizedScan, ...],
     uninterpreted_scans: tuple[UninterpretedScan, ...],
     scan_rule_sets: tuple[NormalizedScanRuleSet, ...],
@@ -344,6 +438,8 @@ def build_remote_state_v2(
     """Build RemoteStateV2 with deterministic identity from sorted inputs."""
     sorted_ds = tuple(sorted(data_sources, key=lambda item: item.name))
     sorted_ui = tuple(sorted(uninterpreted_data_sources, key=lambda item: item.name))
+    sorted_cr = tuple(sorted(classification_rules, key=lambda item: item.name))
+    sorted_ui_cr = tuple(sorted(uninterpreted_classification_rules, key=lambda item: item.name))
     sorted_scans = tuple(sorted(scans, key=lambda item: (item.data_source_name, item.name)))
     sorted_ui_scans = tuple(
         sorted(uninterpreted_scans, key=lambda item: (item.data_source_name, item.name))
@@ -353,6 +449,8 @@ def build_remote_state_v2(
     provisional = RemoteStateV2(
         data_sources=sorted_ds,
         uninterpreted_data_sources=sorted_ui,
+        classification_rules=sorted_cr,
+        uninterpreted_classification_rules=sorted_ui_cr,
         scans=sorted_scans,
         uninterpreted_scans=sorted_ui_scans,
         scan_rule_sets=sorted_srs,
@@ -363,6 +461,8 @@ def build_remote_state_v2(
     return RemoteStateV2(
         data_sources=sorted_ds,
         uninterpreted_data_sources=sorted_ui,
+        classification_rules=sorted_cr,
+        uninterpreted_classification_rules=sorted_ui_cr,
         scans=sorted_scans,
         uninterpreted_scans=sorted_ui_scans,
         scan_rule_sets=sorted_srs,

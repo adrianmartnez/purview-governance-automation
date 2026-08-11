@@ -27,6 +27,7 @@ from purview_governance.scanning.errors import (
     PurviewTimeoutError,
 )
 from purview_governance.scanning.names import (
+    validate_classification_rule_name,
     validate_data_source_name,
     validate_scan_name,
     validate_scan_ruleset_name,
@@ -39,6 +40,7 @@ from purview_governance.scanning.origin import (
 )
 
 _DATA_SOURCES_PATH = "/scan/datasources"
+_CLASSIFICATION_RULES_PATH = "/scan/classificationrules"
 _SCAN_RULESETS_PATH = "/scan/scanrulesets"
 
 
@@ -72,6 +74,17 @@ class ScanListResult:
 @dataclass(frozen=True, slots=True)
 class ScanRuleSetListResult:
     """Aggregated Custom Scan Rule Set list snapshot."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationRuleListResult:
+    """Aggregated Classification Rule list snapshot."""
 
     items: tuple[dict[str, Any], ...]
 
@@ -312,6 +325,13 @@ class PurviewScanningClient:
         query = urlencode({"api-version": SCANNING_API_VERSION})
         return f"{self._base_url}{path}?{query}"
 
+    def _classification_rules_url(self, name: str | None = None) -> str:
+        path = (
+            _CLASSIFICATION_RULES_PATH if name is None else f"{_CLASSIFICATION_RULES_PATH}/{name}"
+        )
+        query = urlencode({"api-version": SCANNING_API_VERSION})
+        return f"{self._base_url}{path}?{query}"
+
     def _list_paginated(self, *, initial_url: str, operation: str) -> tuple[dict[str, Any], ...]:
         url = initial_url
         aggregated: list[dict[str, Any]] = []
@@ -497,6 +517,39 @@ class PurviewScanningClient:
                 url=url,
             )
         data = _parse_json_object(response, operation="get_scan_rule_set")
+        return _defensive_snapshot(data)
+
+    def list_classification_rules(self) -> ClassificationRuleListResult:
+        """List Classification Rules via ``/scan/classificationrules`` only."""
+        return ClassificationRuleListResult(
+            items=self._list_paginated(
+                initial_url=self._classification_rules_url(),
+                operation="list_classification_rules",
+            )
+        )
+
+    def get_classification_rule(self, name: str) -> dict[str, Any]:
+        """Get a Classification Rule by name."""
+        validated = validate_classification_rule_name(name)
+        url = self._classification_rules_url(validated)
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        response = self._send(
+            "GET",
+            url,
+            operation="get_classification_rule",
+            headers=headers,
+        )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="get_classification_rule",
+                method="GET",
+                url=url,
+            )
+        data = _parse_json_object(response, operation="get_classification_rule")
         return _defensive_snapshot(data)
 
     def _create_or_replace_data_source(

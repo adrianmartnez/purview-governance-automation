@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from purview_governance.scanning.client import (
+    ClassificationRuleListResult,
     DataSourceListResult,
     ScanListResult,
     ScanRuleSetListResult,
@@ -54,28 +55,47 @@ class FakeReadClient:
 
 
 class FakeScanningReadClient(FakeReadClient):
-    """In-memory DS + Scan + Custom SRS seam for remote-state/v2 capture tests."""
+    """In-memory DS + CR + Scan + Custom SRS seam for remote-state/v2 capture tests."""
 
     def __init__(
         self,
         list_items: list[dict[str, Any]] | None = None,
         get_bodies: dict[str, dict[str, Any]] | None = None,
+        classification_rule_list_items: list[dict[str, Any]] | None = None,
+        classification_rule_get_bodies: dict[str, dict[str, Any]] | None = None,
         scan_list_by_parent: dict[str, list[dict[str, Any]]] | None = None,
         scan_get_bodies: dict[tuple[str, str], dict[str, Any]] | None = None,
         scan_ruleset_list_items: list[dict[str, Any]] | None = None,
         scan_ruleset_get_bodies: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         super().__init__(list_items=list_items, get_bodies=get_bodies)
+        self._classification_rule_list_items = list(classification_rule_list_items or [])
+        self._classification_rule_get_bodies = dict(classification_rule_get_bodies or {})
         self._scan_list_by_parent = {
             key: list(value) for key, value in (scan_list_by_parent or {}).items()
         }
         self._scan_get_bodies = dict(scan_get_bodies or {})
         self._scan_ruleset_list_items = list(scan_ruleset_list_items or [])
         self._scan_ruleset_get_bodies = dict(scan_ruleset_get_bodies or {})
+        self.list_classification_rule_calls = 0
+        self.get_classification_rule_calls: list[str] = []
         self.list_scan_calls: list[str] = []
         self.get_scan_calls: list[tuple[str, str]] = []
         self.list_scan_ruleset_calls = 0
         self.get_scan_ruleset_calls: list[str] = []
+
+    def list_classification_rules(self) -> ClassificationRuleListResult:
+        self.list_classification_rule_calls += 1
+        return ClassificationRuleListResult(
+            items=tuple(dict(item) for item in self._classification_rule_list_items)
+        )
+
+    def get_classification_rule(self, name: str) -> dict[str, Any]:
+        self.get_classification_rule_calls.append(name)
+        if name not in self._classification_rule_get_bodies:
+            msg = f"missing fixture for get_classification_rule({name!r})"
+            raise KeyError(msg)
+        return dict(self._classification_rule_get_bodies[name])
 
     def list_scans(self, data_source_name: str) -> ScanListResult:
         self.list_scan_calls.append(data_source_name)

@@ -8,7 +8,7 @@ from typing import Any, Literal
 from purview_governance.remote_state.canonical import dumps_canonical
 
 DiffOutcome = Literal["create", "replace", "no-op", "remote-only", "blocked"]
-DiffResourceType = Literal["dataSource", "scan", "scanRuleSet"]
+DiffResourceType = Literal["dataSource", "classificationRule", "scanRuleSet", "scan"]
 
 
 @dataclass(frozen=True, slots=True)

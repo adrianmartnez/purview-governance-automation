@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from purview_governance.desired.models import (
+    ClassificationRuleDesiredState,
     DataSourceDesiredState,
     DesiredState,
     ScanDesiredState,
@@ -12,11 +15,13 @@ from purview_governance.diff.models import DiffDocument, DiffItem, DiffOutcome, 
 from purview_governance.diff.reasons import reason, sort_reasons
 from purview_governance.remote_state.canonical import canonical_json_scalar, dumps_canonical
 from purview_governance.remote_state.models import (
+    NormalizedClassificationRule,
     NormalizedDataSource,
     NormalizedScan,
     NormalizedScanRuleSet,
     RemoteState,
     RemoteStateV2,
+    UninterpretedClassificationRule,
     UninterpretedDataSource,
     UninterpretedScan,
     UninterpretedScanRuleSet,
@@ -24,7 +29,12 @@ from purview_governance.remote_state.models import (
     UnsupportedConfigurableField,
 )
 
-_TYPE_RANK: dict[str, int] = {"dataSource": 0, "scanRuleSet": 1, "scan": 2}
+_TYPE_RANK: dict[str, int] = {
+    "dataSource": 0,
+    "classificationRule": 1,
+    "scanRuleSet": 2,
+    "scan": 3,
+}
 
 
 def _sort_items(items: list[DiffItem]) -> tuple[DiffItem, ...]:
@@ -431,6 +441,203 @@ def _canonical_string_list(values: tuple[str, ...]) -> str:
     return dumps_canonical(list(values))
 
 
+def _canonical_regex_patterns(patterns: tuple[Any, ...]) -> str:
+    return dumps_canonical([item.to_document() for item in patterns])
+
+
+def _compare_classification_rule(
+    desired: ClassificationRuleDesiredState,
+    remote: NormalizedClassificationRule,
+) -> DiffItem:
+    reasons: list[DiffReason] = []
+    blocking = False
+
+    if remote.unsupported_configurable_fields:
+        blocking = True
+        reasons.extend(_unsupported_configurable_reasons(remote.unsupported_configurable_fields))
+
+    if desired.kind != remote.kind:
+        blocking = True
+        reasons.append(
+            reason(
+                "kind.changed",
+                "/kind",
+                before=remote.kind,
+                after=desired.kind,
+            )
+        )
+
+    if desired.classification_name != remote.classification_name:
+        reasons.append(
+            reason(
+                "properties.classificationName.changed",
+                "/properties/classificationName",
+                before=remote.classification_name,
+                after=desired.classification_name,
+            )
+        )
+
+    if desired.minimum_percentage_match != remote.minimum_percentage_match:
+        reasons.append(
+            reason(
+                "properties.minimumPercentageMatch.changed",
+                "/properties/minimumPercentageMatch",
+                before=canonical_json_scalar(remote.minimum_percentage_match),
+                after=canonical_json_scalar(desired.minimum_percentage_match),
+            )
+        )
+
+    if desired.rule_status != remote.rule_status:
+        reasons.append(
+            reason(
+                "properties.ruleStatus.changed",
+                "/properties/ruleStatus",
+                before=remote.rule_status,
+                after=desired.rule_status,
+            )
+        )
+
+    desired_data = tuple(item.pattern for item in desired.data_patterns)
+    remote_data = tuple(item.pattern for item in remote.data_patterns)
+    if desired_data != remote_data:
+        reasons.append(
+            reason(
+                "properties.dataPatterns.changed",
+                "/properties/dataPatterns",
+                before=_canonical_regex_patterns(remote.data_patterns),
+                after=_canonical_regex_patterns(desired.data_patterns),
+            )
+        )
+
+    desired_column = tuple(item.pattern for item in desired.column_patterns)
+    remote_column = tuple(item.pattern for item in remote.column_patterns)
+    if desired_column != remote_column:
+        reasons.append(
+            reason(
+                "properties.columnPatterns.changed",
+                "/properties/columnPatterns",
+                before=_canonical_regex_patterns(remote.column_patterns),
+                after=_canonical_regex_patterns(desired.column_patterns),
+            )
+        )
+
+    # Compare Python values; encode before/after with unambiguous JSON scalars
+    # so None (null) and "" (JSON empty string) remain distinct in plan reasons.
+    if desired.description != remote.description:
+        reasons.append(
+            reason(
+                "properties.description.changed",
+                "/properties/description",
+                before=canonical_json_scalar(remote.description),
+                after=canonical_json_scalar(desired.description),
+            )
+        )
+
+    sorted_reasons = sort_reasons(reasons)
+    material_changed = any(
+        code
+        in {
+            "properties.classificationName.changed",
+            "properties.minimumPercentageMatch.changed",
+            "properties.ruleStatus.changed",
+            "properties.dataPatterns.changed",
+            "properties.columnPatterns.changed",
+            "properties.description.changed",
+        }
+        for code in (item.code for item in sorted_reasons)
+    )
+    if blocking:
+        outcome: DiffOutcome = "blocked"
+    elif material_changed:
+        outcome = "replace"
+    else:
+        outcome = "no-op"
+
+    return DiffItem(
+        name=desired.name,
+        resource_type="classificationRule",
+        outcome=outcome,
+        reasons=sorted_reasons,
+    )
+
+
+def _item_for_uninterpreted_classification_rule(
+    item: UninterpretedClassificationRule,
+    *,
+    has_desired: bool,
+) -> DiffItem:
+    reasons = [
+        reason(
+            item.reason_code,
+            "/kind",
+            before=item.kind,
+        )
+    ]
+    if has_desired:
+        reasons.append(reason("kind.changed", "/kind", before=item.kind, after="Custom"))
+    else:
+        reasons.append(reason("remote.absent_desired", "/"))
+    return DiffItem(
+        name=item.name,
+        resource_type="classificationRule",
+        outcome="blocked",
+        reasons=sort_reasons(reasons),
+    )
+
+
+def _item_remote_only_classification_rule(remote: NormalizedClassificationRule) -> DiffItem:
+    reasons = _unsupported_configurable_reasons(remote.unsupported_configurable_fields)
+    reasons.append(reason("remote.absent_desired", "/"))
+    return DiffItem(
+        name=remote.name,
+        resource_type="classificationRule",
+        outcome="remote-only",
+        reasons=sort_reasons(reasons),
+    )
+
+
+def _item_create_classification_rule(desired: ClassificationRuleDesiredState) -> DiffItem:
+    return DiffItem(
+        name=desired.name,
+        resource_type="classificationRule",
+        outcome="create",
+        reasons=sort_reasons([reason("desired.absent_remote", "/")]),
+    )
+
+
+def _diff_classification_rules(
+    desired: DesiredState,
+    *,
+    classification_rules: tuple[NormalizedClassificationRule, ...],
+    uninterpreted_classification_rules: tuple[UninterpretedClassificationRule, ...],
+) -> list[DiffItem]:
+    desired_by_name = {item.name: item for item in desired.classification_rules}
+    remote_by_name = {item.name: item for item in classification_rules}
+    uninterpreted_by_name = {item.name: item for item in uninterpreted_classification_rules}
+
+    names = sorted(set(desired_by_name) | set(remote_by_name) | set(uninterpreted_by_name))
+    items: list[DiffItem] = []
+    for name in names:
+        if name in uninterpreted_by_name:
+            items.append(
+                _item_for_uninterpreted_classification_rule(
+                    uninterpreted_by_name[name],
+                    has_desired=name in desired_by_name,
+                )
+            )
+            continue
+        has_desired = name in desired_by_name
+        has_remote = name in remote_by_name
+        if has_remote and not has_desired:
+            items.append(_item_remote_only_classification_rule(remote_by_name[name]))
+            continue
+        if has_desired and not has_remote:
+            items.append(_item_create_classification_rule(desired_by_name[name]))
+            continue
+        items.append(_compare_classification_rule(desired_by_name[name], remote_by_name[name]))
+    return items
+
+
 def _compare_scan_rule_set(
     desired: ScanRuleSetDesiredState,
     remote: NormalizedScanRuleSet,
@@ -652,6 +859,13 @@ def diff_desired_vs_remote(
     )
     if isinstance(remote, RemoteStateV2):
         items.extend(
+            _diff_classification_rules(
+                desired,
+                classification_rules=remote.classification_rules,
+                uninterpreted_classification_rules=remote.uninterpreted_classification_rules,
+            )
+        )
+        items.extend(
             _diff_scan_rule_sets(
                 desired,
                 scan_rule_sets=remote.scan_rule_sets,
@@ -669,5 +883,5 @@ def diff_desired_vs_remote(
 
 
 def diff_desired_vs_remote_v2(desired: DesiredState, remote: RemoteStateV2) -> DiffDocument:
-    """Compare desired state to purview-remote-state/v2 (DS + scans + SRS)."""
+    """Compare desired state to purview-remote-state/v2 (DS + CR + scans + SRS)."""
     return diff_desired_vs_remote(desired, remote)

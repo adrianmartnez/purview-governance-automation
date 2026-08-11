@@ -124,6 +124,54 @@ def custom_azure_storage_scan_ruleset_fixture(
     }
 
 
+def custom_classification_rule_fixture(
+    name: str,
+    *,
+    classification_name: str = "CUSTOM.TEST",
+    minimum_percentage_match: float = 80.0,
+    rule_status: str = "Enabled",
+    classification_action: str | None = "Keep",
+    version: int | None = 4,
+    description: str | None = "fixture rule",
+    data_patterns: list[dict[str, str]] | None = None,
+    column_patterns: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Official-shaped Custom Classification Rule GET/LIST item."""
+    properties: dict[str, Any] = {
+        "classificationName": classification_name,
+        "minimumPercentageMatch": minimum_percentage_match,
+        "ruleStatus": rule_status,
+        "dataPatterns": list(
+            data_patterns
+            if data_patterns is not None
+            else [{"kind": "Regex", "pattern": "^data1$"}]
+        ),
+        "columnPatterns": list(
+            column_patterns
+            if column_patterns is not None
+            else [{"kind": "Regex", "pattern": "^column1$"}]
+        ),
+        "createdAt": "2019-12-09T06:43:30.8478469Z",
+        "lastModifiedAt": "2019-12-09T07:04:53.2807344Z",
+    }
+    if description is not None:
+        properties["description"] = description
+    if classification_action is not None:
+        properties["classificationAction"] = classification_action
+    if version is not None:
+        properties["version"] = version
+    return {
+        "id": f"/classificationRules/{name}",
+        "name": name,
+        "kind": "Custom",
+        "properties": properties,
+    }
+
+
+def system_classification_rule_list_item(name: str) -> dict[str, Any]:
+    return {"name": name, "kind": "System"}
+
+
 @dataclass(frozen=True)
 class RecordedRequest:
     method: str
@@ -168,6 +216,11 @@ class ScenarioState:
     scan_ruleset_get_mode: str = "success"
     scan_ruleset_bodies: dict[str, dict[str, Any]] = field(default_factory=dict)
     scan_ruleset_list_items: list[dict[str, Any]] = field(default_factory=list)
+    # Classification rule list/get modes
+    classification_rule_list_mode: str = "empty"
+    classification_rule_get_mode: str = "success"
+    classification_rule_bodies: dict[str, dict[str, Any]] = field(default_factory=dict)
+    classification_rule_list_items: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _json_bytes(payload: Any) -> bytes:
@@ -249,6 +302,18 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                     self._send_json(404, {"error": {"code": "NotFound"}})
                     return
                 self._handle_get_scan_ruleset(name)
+                return
+
+            if parsed.path == "/scan/classificationrules":
+                self._handle_list_classification_rules()
+                return
+
+            if parsed.path.startswith("/scan/classificationrules/"):
+                name = parsed.path.removeprefix("/scan/classificationrules/")
+                if "/" in name or not name:
+                    self._send_json(404, {"error": {"code": "NotFound"}})
+                    return
+                self._handle_get_classification_rule(name)
                 return
 
             if parsed.path.startswith("/scan/datasources/"):
@@ -665,6 +730,137 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                 return
             self._send_json(200, custom_azure_storage_scan_ruleset_fixture(name))
 
+        def _handle_list_classification_rules(self) -> None:
+            mode = state.classification_rule_list_mode
+            base = f"http://{self.headers.get('Host', '127.0.0.1')}"
+            if mode == "http_error":
+                self._send_json(503, {"error": {"code": "Unavailable"}})
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"{", "application/json")
+                return
+            if mode == "bad_shape":
+                self._send_json(200, {"value": "not-an-array"})
+                return
+            if mode == "empty":
+                self._send_json(200, {"value": [], "count": 0, "nextLink": None})
+                return
+            if mode == "mixed":
+                items = state.classification_rule_list_items or [
+                    {"name": "CustomRuleOne", "kind": "Custom"},
+                    {"name": "SystemRuleOne", "kind": "System"},
+                ]
+                self._send_json(200, {"value": items, "count": len(items), "nextLink": None})
+                return
+            if mode == "paginated":
+                query = parse_qs(urlparse(self.path).query)
+                if query.get("page") == ["2"]:
+                    self._send_json(
+                        200,
+                        {
+                            "value": [{"name": "RuleTwo", "kind": "Custom"}],
+                            "count": 1,
+                            "nextLink": None,
+                        },
+                    )
+                    return
+                self._send_json(
+                    200,
+                    {
+                        "value": [{"name": "RuleOne", "kind": "Custom"}],
+                        "count": 99,
+                        "nextLink": (
+                            f"{base}/scan/classificationrules"
+                            f"?api-version={SCANNING_API_VERSION}&page=2"
+                        ),
+                    },
+                )
+                return
+            if mode == "cross_origin":
+                self._send_json(
+                    200,
+                    {
+                        "value": [{"name": "RuleOne", "kind": "Custom"}],
+                        "nextLink": (
+                            f"https://evil.example/scan/classificationrules"
+                            f"?api-version={SCANNING_API_VERSION}"
+                        ),
+                    },
+                )
+                return
+            if mode == "loop_next":
+                self._send_json(
+                    200,
+                    {
+                        "value": [{"name": "RuleOne", "kind": "Custom"}],
+                        "nextLink": (
+                            f"{base}/scan/classificationrules"
+                            f"?api-version={SCANNING_API_VERSION}&loop=1"
+                        ),
+                    },
+                )
+                return
+            if mode == "duplicate_cross_page":
+                query = parse_qs(urlparse(self.path).query)
+                if query.get("page") == ["2"]:
+                    self._send_json(
+                        200,
+                        {
+                            "value": [{"name": "RuleOne", "kind": "Custom"}],
+                            "nextLink": None,
+                        },
+                    )
+                    return
+                self._send_json(
+                    200,
+                    {
+                        "value": [{"name": "RuleOne", "kind": "Custom"}],
+                        "nextLink": (
+                            f"{base}/scan/classificationrules"
+                            f"?api-version={SCANNING_API_VERSION}&page=2"
+                        ),
+                    },
+                )
+                return
+            if mode == "page_limit":
+                query = parse_qs(urlparse(self.path).query)
+                page = int((query.get("page") or ["1"])[0])
+                next_page = page + 1
+                self._send_json(
+                    200,
+                    {
+                        "value": [{"name": f"Rule{page:03d}", "kind": "Custom"}],
+                        "nextLink": (
+                            f"{base}/scan/classificationrules"
+                            f"?api-version={SCANNING_API_VERSION}&page={next_page}"
+                        ),
+                    },
+                )
+                return
+            if mode == "success" or state.classification_rule_list_items:
+                items = state.classification_rule_list_items or [
+                    {"name": "CustomRuleOne", "kind": "Custom"}
+                ]
+                self._send_json(200, {"value": items, "count": len(items), "nextLink": None})
+                return
+            self._send_json(500, {"error": {"code": "UnknownScenario"}})
+
+        def _handle_get_classification_rule(self, name: str) -> None:
+            if name in state.classification_rule_bodies:
+                self._send_json(200, state.classification_rule_bodies[name])
+                return
+            mode = state.classification_rule_get_mode
+            if mode == "not_found":
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            if mode == "http_error":
+                self._send_json(503, {"error": {"code": "Unavailable"}})
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"not-json", "application/json")
+                return
+            self._send_json(200, custom_classification_rule_fixture(name))
+
     return PurviewContractHandler
 
 
@@ -700,6 +896,10 @@ def start_contract_server(
     scan_ruleset_get_mode: str = "success",
     scan_ruleset_bodies: dict[str, dict[str, Any]] | None = None,
     scan_ruleset_list_items: list[dict[str, Any]] | None = None,
+    classification_rule_list_mode: str = "empty",
+    classification_rule_get_mode: str = "success",
+    classification_rule_bodies: dict[str, dict[str, Any]] | None = None,
+    classification_rule_list_items: list[dict[str, Any]] | None = None,
 ) -> Iterator[ContractServer]:
     """Start an ephemeral loopback Purview contract server and guarantee teardown."""
     state = ScenarioState(
@@ -717,6 +917,10 @@ def start_contract_server(
         scan_ruleset_get_mode=scan_ruleset_get_mode,
         scan_ruleset_bodies=dict(scan_ruleset_bodies or {}),
         scan_ruleset_list_items=list(scan_ruleset_list_items or []),
+        classification_rule_list_mode=classification_rule_list_mode,
+        classification_rule_get_mode=classification_rule_get_mode,
+        classification_rule_bodies=dict(classification_rule_bodies or {}),
+        classification_rule_list_items=list(classification_rule_list_items or []),
     )
     handler = _make_handler(state)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)

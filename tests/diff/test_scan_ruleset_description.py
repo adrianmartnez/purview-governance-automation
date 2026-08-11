@@ -64,6 +64,8 @@ def _diff_item(desired_description: str | None, remote_description: str | None):
         (),
         (),
         (),
+        (),
+        (),
         (_remote(description=remote_description),),
         (),
     )
@@ -84,6 +86,8 @@ def _config_with_description(description: str | None):
 def _plan_self_validates(desired_description: str | None, remote_description: str | None) -> None:
     config = _config_with_description(desired_description)
     remote = build_remote_state_v2(
+        (),
+        (),
         (),
         (),
         (),
