@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from purview_governance.desired.models import (
+    ClassificationRuleDesiredState,
     DataSourceDesiredState,
     DesiredState,
+    RegexClassificationPatternDesired,
     ScanDesiredState,
     ScanRuleSetDesiredState,
 )
@@ -22,7 +24,7 @@ from purview_governance.remote_state.canonical import dumps_canonical
 
 ExecutionEligibility = Literal["ready", "blocked"]
 PlanAction = Literal["create", "replace"]
-PlanResourceType = Literal["dataSource", "scan", "scanRuleSet"]
+PlanResourceType = Literal["dataSource", "classificationRule", "scan", "scanRuleSet"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +227,28 @@ def desired_state_from_document(document: dict[str, Any]) -> DesiredState:
             )
         )
 
+    classification_rules: list[ClassificationRuleDesiredState] = []
+    for raw in document.get("classificationRules", []):
+        props = raw["properties"]
+        classification_rules.append(
+            ClassificationRuleDesiredState(
+                name=raw["name"],
+                kind="Custom",
+                classification_name=props["classificationName"],
+                minimum_percentage_match=float(props["minimumPercentageMatch"]),
+                rule_status=props["ruleStatus"],
+                data_patterns=tuple(
+                    RegexClassificationPatternDesired(pattern=item["pattern"])
+                    for item in props.get("dataPatterns", [])
+                ),
+                column_patterns=tuple(
+                    RegexClassificationPatternDesired(pattern=item["pattern"])
+                    for item in props.get("columnPatterns", [])
+                ),
+                description=props.get("description"),
+            )
+        )
+
     scan_rule_sets: list[ScanRuleSetDesiredState] = []
     for raw in document.get("scanRuleSets", []):
         props = raw["properties"]
@@ -258,6 +282,7 @@ def desired_state_from_document(document: dict[str, Any]) -> DesiredState:
 
     return DesiredState(
         data_sources=tuple(data_sources),
+        classification_rules=tuple(classification_rules),
         scan_rule_sets=tuple(scan_rule_sets),
         scans=tuple(scans),
     )

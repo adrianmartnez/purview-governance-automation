@@ -100,6 +100,18 @@ def load_plan_text(text: str) -> GovernancePlan:
             path="/apiVersion",
         )
 
+    # Pre-#27 plan/v2 development shape (desiredState without classificationRules)
+    # is superseded; refuse load before generic schema failure (no upconvert).
+    if api_version == PLAN_API_VERSION_V2:
+        desired_state = document.get("desiredState")
+        if isinstance(desired_state, dict) and "classificationRules" not in desired_state:
+            raise PlanSchemaError(
+                "plan.development_shape_superseded",
+                "pre-#27 plan/v2 development shape is superseded; "
+                "desiredState.classificationRules is required (no upconvert)",
+                path="/desiredState",
+            )
+
     schema_failed = False
     try:
         validate_plan_document_schema(document)

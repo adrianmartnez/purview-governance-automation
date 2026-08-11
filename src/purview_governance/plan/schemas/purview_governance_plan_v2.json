@@ -61,7 +61,7 @@
     "desiredState": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["dataSources", "scanRuleSets", "scans"],
+      "required": ["dataSources", "classificationRules", "scanRuleSets", "scans"],
       "properties": {
         "dataSources": {
           "type": "array",
@@ -90,6 +90,68 @@
                     "required": ["referenceName"],
                     "properties": {
                       "referenceName": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "classificationRules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "name", "kind", "properties"],
+            "properties": {
+              "type": { "const": "classificationRule" },
+              "name": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 63,
+                "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+              },
+              "kind": { "const": "Custom" },
+              "properties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "classificationName",
+                  "minimumPercentageMatch",
+                  "ruleStatus",
+                  "dataPatterns",
+                  "columnPatterns"
+                ],
+                "properties": {
+                  "classificationName": { "type": "string" },
+                  "minimumPercentageMatch": { "type": "number" },
+                  "ruleStatus": {
+                    "type": "string",
+                    "enum": ["Enabled", "Disabled"]
+                  },
+                  "description": { "type": "string" },
+                  "dataPatterns": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["kind", "pattern"],
+                      "properties": {
+                        "kind": { "const": "Regex" },
+                        "pattern": { "type": "string" }
+                      }
+                    }
+                  },
+                  "columnPatterns": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["kind", "pattern"],
+                      "properties": {
+                        "kind": { "const": "Regex" },
+                        "pattern": { "type": "string" }
+                      }
                     }
                   }
                 }
@@ -254,7 +316,7 @@
               },
               "type": {
                 "type": "string",
-                "enum": ["dataSource", "scan", "scanRuleSet"]
+                "enum": ["dataSource", "classificationRule", "scan", "scanRuleSet"]
               },
               "dataSourceName": {
                 "type": "string",
@@ -311,7 +373,7 @@
           },
           "type": {
             "type": "string",
-            "enum": ["dataSource", "scan", "scanRuleSet"]
+            "enum": ["dataSource", "classificationRule", "scan", "scanRuleSet"]
           },
           "dataSourceName": {
             "type": "string",

@@ -7,9 +7,10 @@ Data Source planning and safe explicit apply workflows.
 
 Stable package version: `1.0.0` (v1.0 released / stable).
 
-`main` develops toward **v1.1** as package `1.1.0.dev0` (Scans + Custom Scan
-Rule Sets: config/remote/plan v2 for read/compare/inspect-only plan). Apply
-remains plan/v1. Explicit unsupported Scan configurables block safe comparison.
+`main` develops toward **v1.1** as package `1.1.0.dev0` (Scans, Custom Scan
+Rule Sets, and Custom Classification Rules: config/remote/diff/plan v2 for
+read/compare/inspect-only). Apply remains plan/v1; classification rules have no
+apply path. Explicit unsupported Scan configurables block safe comparison.
 No live-tenant validation claim.
 
 Package SemVer is independent of machine-contract versions
@@ -46,7 +47,8 @@ does **not** claim live-tenant validation.
 ### Not claimed / not implemented
 
 - Data Source kinds beyond AzureStorage
-- Scan / Custom SRS **mutation** (apply remains plan/v1; plan/v2 is inspect-only)
+- Scan / Custom SRS / Custom Classification Rule **mutation** (apply remains
+  plan/v1; plan/v2 is inspect-only; no classification apply)
 - Unified Catalog (v1.2)
 - automatic deletes
 - production-scale operational hardening
