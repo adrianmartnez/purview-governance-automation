@@ -1,4 +1,4 @@
-"""Strict JSON loader for purview-execution-result/v1."""
+"""Strict JSON loader for purview-execution-result/v1 and /v2."""
 
 from __future__ import annotations
 
@@ -12,17 +12,31 @@ from purview_governance.apply.errors import (
     ExecutionResultSchemaError,
     ExecutionResultVersionError,
 )
-from purview_governance.apply.identity import RESULT_API_VERSION
+from purview_governance.apply.identity import RESULT_API_VERSION, RESULT_API_VERSION_V2
 from purview_governance.apply.models import (
     ExecutionFailure,
     ExecutionMode,
     ExecutionResult,
     operations_from_document,
 )
-from purview_governance.apply.validation import (
-    validate_result_document_schema,
-    validate_result_document_semantics,
+from purview_governance.apply.models_v2 import (
+    ExecutionResultV2,
+    operations_v2_from_document,
 )
+from purview_governance.apply.validation import (
+    validate_result_document_schema as validate_result_document_schema_v1,
+)
+from purview_governance.apply.validation import (
+    validate_result_document_semantics as validate_result_document_semantics_v1,
+)
+from purview_governance.apply.validation_v2 import (
+    validate_result_document_schema as validate_result_document_schema_v2,
+)
+from purview_governance.apply.validation_v2 import (
+    validate_result_document_semantics as validate_result_document_semantics_v2,
+)
+
+GovernanceExecutionResult = ExecutionResult | ExecutionResultV2
 
 
 class DuplicateKeyError(ValueError):
@@ -68,7 +82,7 @@ def _parse_result_json(text: str) -> dict[str, Any]:
     return document
 
 
-def _result_from_validated_document(document: dict[str, Any]) -> ExecutionResult:
+def _result_from_validated_document_v1(document: dict[str, Any]) -> ExecutionResult:
     failure_raw = document["failure"]
     failure = None if failure_raw is None else ExecutionFailure(code=failure_raw["code"])
     return ExecutionResult(
@@ -89,12 +103,41 @@ def _result_from_validated_document(document: dict[str, Any]) -> ExecutionResult
     )
 
 
-def load_execution_result_text(text: str) -> ExecutionResult:
-    """Load and strictly validate a purview-execution-result/v1 JSON artifact."""
+def _result_from_validated_document_v2(document: dict[str, Any]) -> ExecutionResultV2:
+    failure_raw = document["failure"]
+    failure = None if failure_raw is None else ExecutionFailure(code=failure_raw["code"])
+    return ExecutionResultV2(
+        api_version=document["apiVersion"],
+        plan_identity=document["planIdentity"],
+        planned_target_context_identity=document["plannedTargetContextIdentity"],
+        execution_target_context_identity=document["executionTargetContextIdentity"],
+        planned_remote_state_identity=document["plannedRemoteStateIdentity"],
+        observed_remote_state_identity=document["observedRemoteStateIdentity"],
+        mode=ExecutionMode(document["mode"]),
+        status=document["status"],
+        writes_performed=document["writesPerformed"],
+        writes_attempted=document["writesAttempted"],
+        writes_unknown=document["writesUnknown"],
+        operations=operations_v2_from_document(document["operations"]),
+        failure=failure,
+        result_identity=document["resultIdentity"],
+    )
+
+
+def load_execution_result_text(text: str) -> GovernanceExecutionResult:
+    """Load and strictly validate a purview-execution-result/v1 or /v2 JSON artifact."""
     document = _parse_result_json(text)
 
     api_version = document.get("apiVersion")
-    if api_version != RESULT_API_VERSION:
+    if api_version == RESULT_API_VERSION:
+        validate_schema = validate_result_document_schema_v1
+        validate_semantics = validate_result_document_semantics_v1
+        materialize = _result_from_validated_document_v1
+    elif api_version == RESULT_API_VERSION_V2:
+        validate_schema = validate_result_document_schema_v2
+        validate_semantics = validate_result_document_semantics_v2
+        materialize = _result_from_validated_document_v2
+    else:
         raise ExecutionResultVersionError(
             "apply.unsupported_version",
             "unsupported or missing execution-result apiVersion",
@@ -103,7 +146,7 @@ def load_execution_result_text(text: str) -> ExecutionResult:
 
     schema_failed = False
     try:
-        validate_result_document_schema(document)
+        validate_schema(document)
     except ExecutionResultSchemaError:
         schema_failed = True
     except Exception:
@@ -117,7 +160,7 @@ def load_execution_result_text(text: str) -> ExecutionResult:
     integrity_failed = False
     integrity_error: ExecutionResultIntegrityError | None = None
     try:
-        validate_result_document_semantics(document)
+        validate_semantics(document)
     except ExecutionResultIntegrityError as exc:
         integrity_failed = True
         integrity_error = ExecutionResultIntegrityError(exc.code, exc.message, path=exc.path)
@@ -132,9 +175,9 @@ def load_execution_result_text(text: str) -> ExecutionResult:
         raise integrity_error
 
     model_failed = False
-    result: ExecutionResult | None = None
+    result: GovernanceExecutionResult | None = None
     try:
-        result = _result_from_validated_document(document)
+        result = materialize(document)
     except Exception:
         model_failed = True
     if model_failed or result is None:
@@ -145,7 +188,7 @@ def load_execution_result_text(text: str) -> ExecutionResult:
     return result
 
 
-def load_execution_result_file(path: str | Path) -> ExecutionResult:
+def load_execution_result_file(path: str | Path) -> GovernanceExecutionResult:
     """Load an execution-result artifact from a UTF-8 JSON file."""
     file_path = Path(path)
     read_failed = False

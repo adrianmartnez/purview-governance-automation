@@ -17,6 +17,7 @@ from purview_governance.apply import (
     ExecutionMode,
     ExecutionResult,
     ExecutionResultError,
+    ExecutionResultV2,
     execute_governance_plan,
     format_execution_result_summary,
     load_execution_result_file,
@@ -266,7 +267,7 @@ def _cmd_apply(args: argparse.Namespace, deps: _CliDependencies) -> int:
 
     mode = ExecutionMode.APPLY if args.authorize_apply else ExecutionMode.DRY_RUN
     client = None
-    result: ExecutionResult | None = None
+    result: ExecutionResult | ExecutionResultV2 | None = None
     try:
         client = _build_client(plan.target_context.endpoint, deps)
         result = execute_governance_plan(plan, client, mode=mode)
@@ -325,7 +326,7 @@ def _build_client(endpoint: str, deps: _CliDependencies) -> PurviewScanningClien
     return PurviewScanningClient(endpoint, provider)
 
 
-def _exit_for_result(result: ExecutionResult) -> int:
+def _exit_for_result(result: ExecutionResult | ExecutionResultV2) -> int:
     if result.status in {"dry-run-ready", "applied"}:
         return EXIT_SUCCESS
     if result.status in {"blocked", "wrong-target", "stale"}:
