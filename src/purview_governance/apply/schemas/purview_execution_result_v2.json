@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-execution-result/v2",
+  "title": "purview-execution-result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "resultIdentity",
+    "planIdentity",
+    "plannedTargetContextIdentity",
+    "executionTargetContextIdentity",
+    "plannedRemoteStateIdentity",
+    "observedRemoteStateIdentity",
+    "mode",
+    "status",
+    "writesPerformed",
+    "writesAttempted",
+    "writesUnknown",
+    "operations",
+    "failure"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-execution-result/v2"
+    },
+    "resultIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "planIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "plannedTargetContextIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "executionTargetContextIdentity": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "plannedRemoteStateIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "observedRemoteStateIdentity": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dry-run", "apply"]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "dry-run-ready",
+        "applied",
+        "blocked",
+        "wrong-target",
+        "stale",
+        "failed-before-write",
+        "write-failed",
+        "indeterminate"
+      ]
+    },
+    "writesPerformed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "writesAttempted": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "writesUnknown": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "type", "name", "action", "status"],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": ["dataSource", "classificationRule", "scanRuleSet", "scan"]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "dataSourceName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "replace"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["not-run", "succeeded", "failed", "unknown"]
+          }
+        }
+      }
+    },
+    "failure": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "apply.plan_blocked",
+                "apply.wrong_target",
+                "apply.stale_plan",
+                "apply.payload_preflight_failed",
+                "apply.authentication_failed",
+                "apply.remote_read_failed",
+                "apply.remote_state_failed",
+                "apply.write_rejected",
+                "apply.write_auth_failed",
+                "apply.write_outcome_unknown"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-"""Read-only offline governance plan builder (v1 and inspect-only v2)."""
+"""Offline governance plan builder (v1 and v2; builders perform no writes)."""
 
 from __future__ import annotations
 
@@ -175,9 +175,10 @@ def build_governance_plan_v2(
     config: GovernanceConfig,
     remote_state: RemoteStateV2,
 ) -> GovernancePlan:
-    """Build an inspect-only plan/v2 (DS + classification rules + scans + Custom SRS).
+    """Build a purview-governance-plan/v2 (DS + CR + scans + Custom SRS).
 
-    Pure/offline. Apply rejects plan/v2; this artifact is for read/compare/inspect.
+    Pure/offline: no network writes and no live-tenant claim. The resulting plan
+    artifact can later be consumed by controlled apply (plan/v2 path).
     """
     normalized_endpoint = validate_governance_config_for_planning_v2(config)
     validate_remote_state_v2_for_planning(remote_state)

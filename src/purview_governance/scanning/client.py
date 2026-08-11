@@ -101,6 +101,16 @@ class DataSourceWriteReceipt:
     status_code: int
 
 
+@dataclass(frozen=True, slots=True)
+class WriteReceipt:
+    """Package-private multi-resource write receipt (HTTP 200/201; no response body)."""
+
+    resource_type: str
+    name: str
+    status_code: int
+    data_source_name: str | None = None
+
+
 def _defensive_snapshot(value: Any) -> Any:
     """Deep-copy JSON-plain structures returned to callers (not deep-immutable)."""
     return copy.deepcopy(value)
@@ -587,3 +597,108 @@ class PurviewScanningClient:
             )
         # Confirmed write at HTTP success; do not depend on body parse for accounting.
         return DataSourceWriteReceipt(name=validated, status_code=response.status_code)
+
+    def _create_or_replace_classification_rule(
+        self,
+        name: str,
+        payload: Mapping[str, Any],
+    ) -> WriteReceipt:
+        """Internal Custom Classification Rule create-or-replace primitive."""
+        validated = validate_classification_rule_name(name)
+        body = _serialize_json_body(payload)
+        url = self._classification_rules_url(validated)
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "PUT",
+            url,
+            operation="create_or_replace_classification_rule",
+            headers=headers,
+            content=body,
+        )
+        if response.status_code not in {200, 201}:
+            self._raise_http_error(
+                response,
+                operation="create_or_replace_classification_rule",
+                method="PUT",
+                url=url,
+            )
+        return WriteReceipt(
+            resource_type="classificationRule",
+            name=validated,
+            status_code=response.status_code,
+        )
+
+    def _create_or_replace_scan_rule_set(
+        self,
+        name: str,
+        payload: Mapping[str, Any],
+    ) -> WriteReceipt:
+        """Internal Custom Scan Rule Set create-or-replace primitive."""
+        validated = validate_scan_ruleset_name(name)
+        body = _serialize_json_body(payload)
+        url = self._scan_rulesets_url(validated)
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "PUT",
+            url,
+            operation="create_or_replace_scan_rule_set",
+            headers=headers,
+            content=body,
+        )
+        if response.status_code not in {200, 201}:
+            self._raise_http_error(
+                response,
+                operation="create_or_replace_scan_rule_set",
+                method="PUT",
+                url=url,
+            )
+        return WriteReceipt(
+            resource_type="scanRuleSet",
+            name=validated,
+            status_code=response.status_code,
+        )
+
+    def _create_or_replace_scan(
+        self,
+        data_source_name: str,
+        scan_name: str,
+        payload: Mapping[str, Any],
+    ) -> WriteReceipt:
+        """Internal AzureStorageMsi Scan create-or-replace primitive."""
+        parent = validate_data_source_name(data_source_name)
+        validated = validate_scan_name(scan_name)
+        body = _serialize_json_body(payload)
+        url = self._scans_url(parent, validated)
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "PUT",
+            url,
+            operation="create_or_replace_scan",
+            headers=headers,
+            content=body,
+        )
+        if response.status_code not in {200, 201}:
+            self._raise_http_error(
+                response,
+                operation="create_or_replace_scan",
+                method="PUT",
+                url=url,
+            )
+        return WriteReceipt(
+            resource_type="scan",
+            name=validated,
+            status_code=response.status_code,
+            data_source_name=parent,
+        )
