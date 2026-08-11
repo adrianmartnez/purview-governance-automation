@@ -35,7 +35,12 @@ from purview_governance.plan.validation import (
 )
 from purview_governance.remote_state.models import RemoteState, RemoteStateV2
 
-_TYPE_RANK: dict[str, int] = {"dataSource": 0, "scanRuleSet": 1, "scan": 2}
+_TYPE_RANK: dict[str, int] = {
+    "dataSource": 0,
+    "classificationRule": 1,
+    "scanRuleSet": 2,
+    "scan": 3,
+}
 
 
 def _config_has_multi_resource(config: GovernanceConfig) -> bool:
@@ -170,7 +175,7 @@ def build_governance_plan_v2(
     config: GovernanceConfig,
     remote_state: RemoteStateV2,
 ) -> GovernancePlan:
-    """Build an inspect-only purview-governance-plan/v2 (DS + scans + Custom SRS).
+    """Build an inspect-only plan/v2 (DS + classification rules + scans + Custom SRS).
 
     Pure/offline. Apply rejects plan/v2; this artifact is for read/compare/inspect.
     """

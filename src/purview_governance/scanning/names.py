@@ -54,3 +54,12 @@ def validate_scan_ruleset_name(name: object) -> str:
         field_name="scanRulesetName",
         code="scanning.invalid_scan_ruleset_name",
     )
+
+
+def validate_classification_rule_name(name: object) -> str:
+    """Validate ``classificationRuleName`` before path construction."""
+    return _validate_named_resource(
+        name,
+        field_name="classificationRuleName",
+        code="scanning.invalid_classification_rule_name",
+    )

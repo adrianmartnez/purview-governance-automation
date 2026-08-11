@@ -3,6 +3,7 @@
 from purview_governance.config.diagnostics import ConfigDiagnostic, ConfigValidationError
 from purview_governance.config.models import (
     AuthenticationConfig,
+    ClassificationRuleResourceConfig,
     DataSourceResourceConfig,
     GovernanceConfig,
     ScanResourceConfig,
@@ -19,6 +20,7 @@ from purview_governance.config.service import (
 
 __all__ = [
     "AuthenticationConfig",
+    "ClassificationRuleResourceConfig",
     "ConfigDiagnostic",
     "ConfigValidationError",
     "DataSourceResourceConfig",

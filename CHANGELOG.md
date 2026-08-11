@@ -15,15 +15,26 @@ Development toward package `1.1.0.dev0` (stable remains `1.0.0`).
 
 ### Added (inspect-only; no live-tenant claim)
 
-- Config / remote-state / plan **v2** contracts for AzureStorage **Scans** and
-  **Custom AzureStorage Scan Rule Sets** (read, compare, and inspect-only plan).
-- Multi-resource desired-vs-remote diff (data sources, scans, scan rule sets).
-- Loopback contract coverage for Scan and Scan Rule Set list/get.
+- Config / remote-state / plan **v2** contracts for AzureStorage **Scans**,
+  **Custom AzureStorage Scan Rule Sets**, and **Custom Classification Rules**
+  (read, compare, and inspect-only plan).
+- Multi-resource desired-vs-remote diff (data sources, classification rules,
+  scans, scan rule sets).
+- Loopback contract coverage for Scan, Scan Rule Set, and Classification Rule
+  list/get (including pagination fail-closed cases).
+
+### Changed
+
+- `purview-remote-state/v2` shape expands with required `classificationRules`
+  and `uninterpretedClassificationRules`.
+- `purview-governance-plan/v2` desired state requires `classificationRules`.
+  Pre-#27 plan/v2 development documents without that key are rejected on load
+  with `plan.development_shape_superseded` (no upconvert).
 
 ### Safety / limitations
 
 - **Apply remains `purview-governance-plan/v1` only**; plan/v2 is rejected
-  before any network write.
+  before any network write. Classification rules have no apply/PUT path.
 - Explicit unsupported Scan configurable fields block safe comparison
   (`remote.unsupported_configurable_field`).
 - No claim of validation against a live Microsoft Purview tenant.

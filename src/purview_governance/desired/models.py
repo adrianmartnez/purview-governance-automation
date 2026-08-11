@@ -35,6 +35,47 @@ class DataSourceDesiredState:
 
 
 @dataclass(frozen=True, slots=True)
+class RegexClassificationPatternDesired:
+    """Desired Regex classification pattern (ordered sequence element)."""
+
+    pattern: str
+
+    def to_document(self) -> dict[str, Any]:
+        return {"kind": "Regex", "pattern": self.pattern}
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationRuleDesiredState:
+    """Material desired fields for a Custom Classification Rule."""
+
+    name: str
+    kind: Literal["Custom"]
+    classification_name: str
+    minimum_percentage_match: float
+    rule_status: Literal["Enabled", "Disabled"]
+    data_patterns: tuple[RegexClassificationPatternDesired, ...] = ()
+    column_patterns: tuple[RegexClassificationPatternDesired, ...] = ()
+    description: str | None = None
+
+    def to_document(self) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "classificationName": self.classification_name,
+            "minimumPercentageMatch": self.minimum_percentage_match,
+            "ruleStatus": self.rule_status,
+            "dataPatterns": [item.to_document() for item in self.data_patterns],
+            "columnPatterns": [item.to_document() for item in self.column_patterns],
+        }
+        if self.description is not None:
+            properties["description"] = self.description
+        return {
+            "type": "classificationRule",
+            "name": self.name,
+            "kind": self.kind,
+            "properties": properties,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ScanRuleSetDesiredState:
     """Material desired fields for a Custom AzureStorage Scan Rule Set."""
 
@@ -95,6 +136,7 @@ class DesiredState:
     """Deterministic desired-state snapshot for supported resources."""
 
     data_sources: tuple[DataSourceDesiredState, ...]
+    classification_rules: tuple[ClassificationRuleDesiredState, ...] = ()
     scan_rule_sets: tuple[ScanRuleSetDesiredState, ...] = ()
     scans: tuple[ScanDesiredState, ...] = ()
 
@@ -103,6 +145,7 @@ class DesiredState:
             "dataSources": [item.to_document() for item in self.data_sources],
         }
         if multi_resource:
+            doc["classificationRules"] = [item.to_document() for item in self.classification_rules]
             doc["scanRuleSets"] = [item.to_document() for item in self.scan_rule_sets]
             doc["scans"] = [item.to_document() for item in self.scans]
         return doc

@@ -78,7 +78,7 @@ def test_explicit_array_blocks_diff() -> None:
             ),
         ),
     )
-    remote = build_remote_state_v2((), (), (), (), (remote_srs,), ())
+    remote = build_remote_state_v2((), (), (), (), (), (), (remote_srs,), ())
     item = diff_desired_vs_remote(desired, remote).items[0]
     assert item.outcome == "blocked"
     assert any(

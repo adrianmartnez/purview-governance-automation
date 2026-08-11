@@ -81,6 +81,17 @@ SRS_REPLACE_REASON_CODES = frozenset(
     }
 )
 
+CLASSIFICATION_REPLACE_REASON_CODES = frozenset(
+    {
+        "properties.classificationName.changed",
+        "properties.minimumPercentageMatch.changed",
+        "properties.ruleStatus.changed",
+        "properties.dataPatterns.changed",
+        "properties.columnPatterns.changed",
+        "properties.description.changed",
+    }
+)
+
 BLOCKING_REASON_CODES = frozenset(
     OWNERSHIP_SAFETY_REASON_CODES
     | {
@@ -108,6 +119,11 @@ REASON_PATHS: dict[str, str | None] = {
         "/properties/includedCustomClassificationRuleNames"
     ),
     "properties.description.changed": "/properties/description",
+    "properties.classificationName.changed": "/properties/classificationName",
+    "properties.minimumPercentageMatch.changed": "/properties/minimumPercentageMatch",
+    "properties.ruleStatus.changed": "/properties/ruleStatus",
+    "properties.dataPatterns.changed": "/properties/dataPatterns",
+    "properties.columnPatterns.changed": "/properties/columnPatterns",
     "scanRulesetType.changed": "/scanRulesetType",
     "remote.creation_type_auto_native": "/creationType",
     "remote.creation_type_auto_managed": "/creationType",
@@ -120,7 +136,12 @@ REASON_PATHS: dict[str, str | None] = {
     "kind.changed": "/kind",
 }
 
-_TYPE_RANK: dict[str, int] = {"dataSource": 0, "scanRuleSet": 1, "scan": 2}
+_TYPE_RANK: dict[str, int] = {
+    "dataSource": 0,
+    "classificationRule": 1,
+    "scanRuleSet": 2,
+    "scan": 3,
+}
 
 
 def _integrity(code: str, message: str, *, path: str = "") -> PlanIntegrityError:
@@ -526,7 +547,12 @@ def _validate_reason_shape(reason: dict[str, Any], *, path: str) -> None:
             )
         return
 
-    if code in SCAN_REPLACE_REASON_CODES | SRS_REPLACE_REASON_CODES:
+    if (
+        code
+        in SCAN_REPLACE_REASON_CODES
+        | SRS_REPLACE_REASON_CODES
+        | CLASSIFICATION_REPLACE_REASON_CODES
+    ):
         if not has_before or not has_after:
             _raise_integrity(
                 "plan.invalid_reason",
@@ -1140,6 +1166,8 @@ def _desired_lookup_v2(
     lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
     for item in desired_doc.get("dataSources", []):
         lookup[("dataSource", "", item["name"])] = item
+    for item in desired_doc.get("classificationRules", []):
+        lookup[("classificationRule", "", item["name"])] = item
     for item in desired_doc.get("scanRuleSets", []):
         lookup[("scanRuleSet", "", item["name"])] = item
     for item in desired_doc.get("scans", []):
@@ -1204,6 +1232,13 @@ def _validate_outcome_reasons_v2(
                 _raise_integrity(
                     "plan.invalid_reason_outcome",
                     "scanRuleSet replace reasons must be material field changes only",
+                    path=path,
+                )
+        elif resource_type == "classificationRule":
+            if not codes or any(code not in CLASSIFICATION_REPLACE_REASON_CODES for code in codes):
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "classificationRule replace reasons must be material field changes only",
                     path=path,
                 )
         else:
@@ -1374,7 +1409,7 @@ def _validate_plan_document_semantics_v2(document: dict[str, Any]) -> None:
         )
 
     desired_doc = document["desiredState"]
-    for key in ("dataSources", "scanRuleSets", "scans"):
+    for key in ("dataSources", "classificationRules", "scanRuleSets", "scans"):
         if key not in desired_doc:
             _raise_integrity(
                 "plan.invalid_schema",
@@ -1383,6 +1418,7 @@ def _validate_plan_document_semantics_v2(document: dict[str, Any]) -> None:
             )
 
     data_sources = desired_doc["dataSources"]
+    classification_rules = desired_doc["classificationRules"]
     scan_rule_sets = desired_doc["scanRuleSets"]
     scans = desired_doc["scans"]
 
@@ -1392,6 +1428,13 @@ def _validate_plan_document_semantics_v2(document: dict[str, Any]) -> None:
             "plan.noncanonical_input",
             "desired dataSources must be unique and sorted by name",
             path="/desiredState/dataSources",
+        )
+    cr_names = [item["name"] for item in classification_rules]
+    if cr_names != sorted(cr_names) or len(cr_names) != len(set(cr_names)):
+        _raise_integrity(
+            "plan.noncanonical_input",
+            "desired classificationRules must be unique and sorted by name",
+            path="/desiredState/classificationRules",
         )
     srs_names = [item["name"] for item in scan_rule_sets]
     if srs_names != sorted(srs_names) or len(srs_names) != len(set(srs_names)):

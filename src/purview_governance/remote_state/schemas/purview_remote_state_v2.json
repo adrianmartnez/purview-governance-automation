@@ -8,6 +8,8 @@
     "apiVersion",
     "dataSources",
     "uninterpretedDataSources",
+    "classificationRules",
+    "uninterpretedClassificationRules",
     "scans",
     "uninterpretedScans",
     "scanRuleSets",
@@ -106,6 +108,116 @@
       }
     },
     "uninterpretedDataSources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "reasonCode"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "type": "string", "minLength": 1 },
+          "reasonCode": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "classificationRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "name", "kind", "properties"],
+        "properties": {
+          "type": { "const": "classificationRule" },
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 63,
+            "pattern": "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$"
+          },
+          "kind": { "const": "Custom" },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "classificationName",
+              "minimumPercentageMatch",
+              "ruleStatus",
+              "dataPatterns",
+              "columnPatterns"
+            ],
+            "properties": {
+              "classificationName": { "type": "string" },
+              "minimumPercentageMatch": { "type": "number" },
+              "ruleStatus": {
+                "type": "string",
+                "enum": ["Enabled", "Disabled"]
+              },
+              "description": { "type": "string" },
+              "dataPatterns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "pattern"],
+                  "properties": {
+                    "kind": { "const": "Regex" },
+                    "pattern": { "type": "string" }
+                  }
+                }
+              },
+              "columnPatterns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "pattern"],
+                  "properties": {
+                    "kind": { "const": "Regex" },
+                    "pattern": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "separatelyManagedProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "classificationAction": {
+                "type": "string",
+                "enum": ["Keep", "Delete"]
+              },
+              "version": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              }
+            }
+          },
+          "unsupportedConfigurableFields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "valueIdentity"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "valueIdentity": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "uninterpretedClassificationRules": {
       "type": "array",
       "items": {
         "type": "object",

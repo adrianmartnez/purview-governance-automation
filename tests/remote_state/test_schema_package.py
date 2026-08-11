@@ -24,4 +24,6 @@ def test_remote_state_v2_schema_packaged() -> None:
         "uninterpretedScans",
         "scanRuleSets",
         "uninterpretedScanRuleSets",
+        "classificationRules",
+        "uninterpretedClassificationRules",
     }.issubset(required)

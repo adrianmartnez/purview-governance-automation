@@ -15,3 +15,16 @@ def test_plan_v2_schema_packaged() -> None:
     schema = load_plan_v2_schema()
     assert schema["$id"].endswith("/purview-governance-plan/v2")
     assert schema["properties"]["apiVersion"]["const"] == "purview-governance-plan/v2"
+    required = set(schema["properties"]["desiredState"]["required"])
+    assert {
+        "dataSources",
+        "classificationRules",
+        "scanRuleSets",
+        "scans",
+    }.issubset(required)
+    type_enum = schema["properties"]["changeSet"]["properties"]["items"]["items"]["properties"][
+        "type"
+    ]["enum"]
+    assert "classificationRule" in type_enum
+    op_enum = schema["properties"]["operations"]["items"]["properties"]["type"]["enum"]
+    assert "classificationRule" in op_enum
