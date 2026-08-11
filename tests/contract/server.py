@@ -1,7 +1,8 @@
 """Deterministic local Purview Scanning Data Plane contract-test server.
 
-Emulates only the v1 Data Source list/get/create-or-replace surface needed by
-offline contract tests. Not a general Purview emulator.
+Emulates Data Source / Scan / Scan Rule Set / Classification Rule list/get and
+create-or-replace surfaces needed by offline contract tests. Not a general
+Purview emulator.
 """
 
 from __future__ import annotations
@@ -347,12 +348,8 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                 self._send_json(401, {"error": {"code": "Unauthorized"}})
                 return
 
-            if not parsed.path.startswith("/scan/datasources/"):
-                self._send_json(404, {"error": {"code": "NotFound"}})
-                return
-
-            name = parsed.path.removeprefix("/scan/datasources/")
-            if "/" in name or not name:
+            resource = self._parse_put_target(parsed.path)
+            if resource is None:
                 self._send_json(404, {"error": {"code": "NotFound"}})
                 return
 
@@ -374,6 +371,24 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
             if mode == "created_bad_json":
                 self._send_raw(201, b"not-json", "application/json")
                 return
+            if mode == "bad_request":
+                self._send_json(
+                    400,
+                    {"error": {"code": "BadRequest", "message": "SECRET_SENTINEL_contract_400"}},
+                )
+                return
+            if mode == "unauthorized":
+                self._send_json(
+                    401,
+                    {"error": {"code": "Unauthorized", "message": "SECRET_SENTINEL_contract_401"}},
+                )
+                return
+            if mode == "forbidden":
+                self._send_json(
+                    403,
+                    {"error": {"code": "Forbidden", "message": "SECRET_SENTINEL_contract_403"}},
+                )
+                return
             if mode == "client_error":
                 self._send_json(
                     409,
@@ -392,9 +407,159 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                     self.connection.close()
                 return
 
-            response = {"name": name, "kind": (body or {}).get("kind", "AzureStorage")}
             status = 201 if mode == "created" else 200
+            response = self._apply_successful_put(resource, body if isinstance(body, dict) else {})
             self._send_json(status, response)
+
+        def _parse_put_target(self, path: str) -> dict[str, str] | None:
+            if path.startswith("/scan/classificationrules/"):
+                name = path.removeprefix("/scan/classificationrules/")
+                if "/" in name or not name:
+                    return None
+                return {"resource_type": "classificationRule", "name": name}
+            if path.startswith("/scan/scanrulesets/"):
+                name = path.removeprefix("/scan/scanrulesets/")
+                if "/" in name or not name:
+                    return None
+                return {"resource_type": "scanRuleSet", "name": name}
+            if path.startswith("/scan/datasources/"):
+                remainder = path.removeprefix("/scan/datasources/")
+                parts = [part for part in remainder.split("/") if part != ""]
+                if len(parts) == 1:
+                    return {"resource_type": "dataSource", "name": parts[0]}
+                if len(parts) == 3 and parts[1] == "scans":
+                    return {
+                        "resource_type": "scan",
+                        "name": parts[2],
+                        "data_source_name": parts[0],
+                    }
+            return None
+
+        def _apply_successful_put(
+            self, resource: dict[str, str], body: dict[str, Any]
+        ) -> dict[str, Any]:
+            resource_type = resource["resource_type"]
+            name = resource["name"]
+            if resource_type == "dataSource":
+                kind = body.get("kind", "AzureStorage")
+                properties = (
+                    body.get("properties") if isinstance(body.get("properties"), dict) else {}
+                )
+                stored = {
+                    "name": name,
+                    "kind": kind,
+                    "creationType": "Manual",
+                    "properties": {
+                        "endpoint": properties.get("endpoint"),
+                        "collection": properties.get("collection"),
+                        "dataSourceCollectionMovingState": "Active",
+                        "createdAt": "2020-01-01T00:00:00Z",
+                        "lastModifiedAt": "2020-01-01T00:00:00Z",
+                    },
+                }
+                state.get_bodies[name] = stored
+                if state.list_mode in {"empty", "one_page", "example_source"}:
+                    state.list_mode = "from_put_inventory"
+                return {"name": name, "kind": kind}
+
+            if resource_type == "classificationRule":
+                properties = (
+                    body.get("properties") if isinstance(body.get("properties"), dict) else {}
+                )
+                material_props = {
+                    key: value
+                    for key, value in properties.items()
+                    if key
+                    not in {
+                        "classificationAction",
+                        "version",
+                        "createdAt",
+                        "lastModifiedAt",
+                        "id",
+                    }
+                }
+                previous = state.classification_rule_bodies.get(name)
+                previous_version = 0
+                if isinstance(previous, dict):
+                    prev_props = previous.get("properties")
+                    if isinstance(prev_props, dict) and isinstance(prev_props.get("version"), int):
+                        previous_version = prev_props["version"]
+                stored_props = {
+                    **material_props,
+                    "classificationAction": "Keep",
+                    "version": previous_version + 1,
+                    "createdAt": "2020-01-01T00:00:00Z",
+                    "lastModifiedAt": "2020-01-02T00:00:00Z",
+                }
+                stored = {
+                    "id": f"classificationrules/{name}",
+                    "name": name,
+                    "kind": body.get("kind", "Custom"),
+                    "properties": stored_props,
+                }
+                state.classification_rule_bodies[name] = stored
+                list_item = {"name": name, "kind": stored["kind"]}
+                state.classification_rule_list_items = [
+                    item
+                    for item in state.classification_rule_list_items
+                    if item.get("name") != name
+                ] + [list_item]
+                if state.classification_rule_list_mode == "empty":
+                    state.classification_rule_list_mode = "success"
+                return stored
+
+            if resource_type == "scanRuleSet":
+                properties = (
+                    body.get("properties") if isinstance(body.get("properties"), dict) else {}
+                )
+                stored = {
+                    "id": f"scanrulesets/{name}",
+                    "name": name,
+                    "kind": body.get("kind", "AzureStorage"),
+                    "scanRulesetType": body.get("scanRulesetType", "Custom"),
+                    "status": "Enabled",
+                    "version": 1,
+                    "properties": {
+                        **properties,
+                        "createdAt": "2020-01-01T00:00:00Z",
+                        "lastModifiedAt": "2020-01-02T00:00:00Z",
+                    },
+                }
+                state.scan_ruleset_bodies[name] = stored
+                list_item = {
+                    "name": name,
+                    "kind": stored["kind"],
+                    "scanRulesetType": stored["scanRulesetType"],
+                }
+                state.scan_ruleset_list_items = [
+                    item for item in state.scan_ruleset_list_items if item.get("name") != name
+                ] + [list_item]
+                if state.scan_ruleset_list_mode == "empty":
+                    state.scan_ruleset_list_mode = "success"
+                return stored
+
+            # scan
+            parent = resource["data_source_name"]
+            properties = body.get("properties") if isinstance(body.get("properties"), dict) else {}
+            stored = {
+                "name": name,
+                "kind": body.get("kind", "AzureStorageMsi"),
+                "dataSourceName": parent,
+                "creationType": "Manual",
+                "properties": {
+                    **properties,
+                    "createdAt": "2020-01-01T00:00:00Z",
+                    "lastModifiedAt": "2020-01-02T00:00:00Z",
+                },
+            }
+            state.scan_bodies[(parent, name)] = stored
+            existing = list(state.scan_list_bodies.get(parent, []))
+            existing = [item for item in existing if item.get("name") != name]
+            existing.append({"name": name, "kind": stored["kind"]})
+            state.scan_list_bodies[parent] = existing
+            if state.scan_list_mode == "empty":
+                state.scan_list_mode = "success"
+            return stored
 
         def _handle_list(self) -> None:
             host, port = self.server.server_address[:2]
@@ -412,6 +577,13 @@ def _make_handler(state: ScenarioState) -> type[BaseHTTPRequestHandler]:
                 return
             if mode == "empty":
                 self._send_json(200, {"value": [], "count": 0})
+                return
+            if mode == "from_put_inventory":
+                items = [
+                    {"name": name, "kind": body.get("kind", "AzureStorage")}
+                    for name, body in sorted(state.get_bodies.items())
+                ]
+                self._send_json(200, {"value": items, "count": len(items)})
                 return
             if mode == "one_page":
                 self._send_json(
