@@ -50,10 +50,7 @@
             "const": "businessDomain"
           },
           "id": {
-            "type": "string",
-            "minLength": 36,
-            "maxLength": 36,
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            "$ref": "#/$defs/uuid"
           },
           "properties": {
             "type": "object",
@@ -68,10 +65,7 @@
                 "type": "string"
               },
               "parentId": {
-                "type": "string",
-                "minLength": 36,
-                "maxLength": 36,
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                "$ref": "#/$defs/uuid"
               },
               "status": {
                 "type": "string",
@@ -93,22 +87,7 @@
             }
           },
           "unsupportedConfigurableFields": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["path", "valueIdentity"],
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "valueIdentity": {
-                  "type": "string",
-                  "pattern": "^sha256:[0-9a-f]{64}$"
-                }
-              }
-            }
+            "$ref": "#/$defs/unsupportedConfigurableFields"
           }
         }
       }
@@ -116,26 +95,244 @@
     "uninterpretedBusinessDomains": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["reasonCode"],
-        "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 36,
-            "maxLength": 36,
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-          },
-          "reasonCode": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
+        "$ref": "#/$defs/uninterpretedBusinessDomain"
+      }
+    },
+    "capturedResourceTypes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "const": "businessDomain" },
+        { "const": "dataProduct" }
+      ],
+      "items": false
+    },
+    "dataProducts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/normalizedDataProduct"
+      }
+    },
+    "uninterpretedDataProducts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/uninterpretedDataProduct"
       }
     },
     "materialStateIdentity": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["capturedResourceTypes"]
+      },
+      "then": {
+        "required": ["dataProducts", "uninterpretedDataProducts"]
+      },
+      "else": {
+        "properties": {
+          "capturedResourceTypes": false,
+          "dataProducts": false,
+          "uninterpretedDataProducts": false
+        }
+      }
+    },
+    {
+      "if": {
+        "anyOf": [
+          { "required": ["dataProducts"] },
+          { "required": ["uninterpretedDataProducts"] }
+        ]
+      },
+      "then": {
+        "required": ["capturedResourceTypes", "dataProducts", "uninterpretedDataProducts"]
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "dataProductType": {
+      "type": "string",
+      "enum": [
+        "Master",
+        "Reference",
+        "Analytical",
+        "AI",
+        "MasterDataAndReferenceData",
+        "BusinessSystemOrApplication",
+        "ModelTypes",
+        "DashboardsOrReports",
+        "Operational",
+        "MLAITrainingDataSet",
+        "MLAITestingDataSet",
+        "TransactionalDataset",
+        "AnalyticsModel",
+        "SemanticModel"
+      ]
+    },
+    "dataProductOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "unsupportedConfigurableField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "valueIdentity"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "valueIdentity": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "unsupportedConfigurableFields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/unsupportedConfigurableField"
+      }
+    },
+    "uninterpretedBusinessDomain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "uninterpretedDataProduct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "normalizedDataProduct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "properties", "safetyProperties"],
+      "properties": {
+        "type": {
+          "const": "dataProduct"
+        },
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "domain", "type", "description", "businessUse"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "domain": {
+              "$ref": "#/$defs/uuid"
+            },
+            "type": {
+              "$ref": "#/$defs/dataProductType"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            },
+            "businessUse": {
+              "type": "string",
+              "minLength": 1
+            },
+            "owners": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/dataProductOwner"
+              }
+            },
+            "audience": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "DataEngineer",
+                  "BIEngineer",
+                  "DataAnalyst",
+                  "DataScientist",
+                  "BusinessAnalyst",
+                  "SoftwareEngineer",
+                  "BusinessUser",
+                  "Executive"
+                ]
+              }
+            },
+            "updateFrequency": {
+              "type": "string",
+              "enum": [
+                "Hourly",
+                "Daily",
+                "Weekly",
+                "Monthly",
+                "Quarterly",
+                "Yearly"
+              ]
+            },
+            "endorsed": {
+              "type": "boolean"
+            }
+          }
+        },
+        "safetyProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["DRAFT", "PUBLISHED", "EXPIRED"]
+            },
+            "provisioningState": {
+              "type": "string",
+              "enum": ["Unknown", "Succeeded", "SoftDeleted"]
+            }
+          }
+        },
+        "unsupportedConfigurableFields": {
+          "$ref": "#/$defs/unsupportedConfigurableFields"
+        }
+      }
     }
   }
 }

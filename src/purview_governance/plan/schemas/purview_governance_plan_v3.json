@@ -79,10 +79,7 @@
             "required": ["id", "properties"],
             "properties": {
               "id": {
-                "type": "string",
-                "minLength": 36,
-                "maxLength": 36,
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                "$ref": "#/$defs/uuid"
               },
               "properties": {
                 "type": "object",
@@ -97,10 +94,7 @@
                     "type": "string"
                   },
                   "parentId": {
-                    "type": "string",
-                    "minLength": 36,
-                    "maxLength": 36,
-                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    "$ref": "#/$defs/uuid"
                   },
                   "status": {
                     "type": "string",
@@ -123,6 +117,22 @@
               }
             }
           }
+        },
+        "dataProducts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "properties"],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "properties": {
+                "$ref": "#/$defs/dataProductDesiredProperties"
+              }
+            }
+          }
         }
       }
     },
@@ -134,48 +144,46 @@
         "items": {
           "type": "array",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["id", "type", "outcome", "reasons"],
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 36,
-                "maxLength": 36,
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "type", "outcome", "reasons"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "type": {
+                    "const": "businessDomain"
+                  },
+                  "outcome": {
+                    "$ref": "#/$defs/changeOutcome"
+                  },
+                  "reasons": {
+                    "$ref": "#/$defs/changeReasons"
+                  }
+                }
               },
-              "type": {
-                "const": "businessDomain"
-              },
-              "outcome": {
-                "type": "string",
-                "enum": ["create", "replace", "no-op", "remote-only", "blocked"]
-              },
-              "reasons": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": ["code", "path"],
-                  "properties": {
-                    "code": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "path": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "before": {
-                      "type": "string"
-                    },
-                    "after": {
-                      "type": "string"
-                    }
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "type", "outcome", "reasons"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "type": {
+                    "const": "dataProduct"
+                  },
+                  "outcome": {
+                    "$ref": "#/$defs/changeOutcome"
+                  },
+                  "reasons": {
+                    "$ref": "#/$defs/changeReasons"
                   }
                 }
               }
-            }
+            ]
           }
         }
       }
@@ -187,28 +195,48 @@
     "operations": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["sequence", "type", "id", "action"],
-        "properties": {
-          "sequence": {
-            "type": "integer",
-            "minimum": 1
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sequence", "type", "id", "action"],
+            "properties": {
+              "sequence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "type": {
+                "const": "businessDomain"
+              },
+              "id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "action": {
+                "$ref": "#/$defs/operationAction"
+              }
+            }
           },
-          "type": {
-            "const": "businessDomain"
-          },
-          "id": {
-            "type": "string",
-            "minLength": 36,
-            "maxLength": 36,
-            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-          },
-          "action": {
-            "type": "string",
-            "enum": ["create", "replace"]
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sequence", "type", "id", "action"],
+            "properties": {
+              "sequence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "type": {
+                "const": "dataProduct"
+              },
+              "id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "action": {
+                "$ref": "#/$defs/operationAction"
+              }
+            }
           }
-        }
+        ]
       }
     },
     "summary": {
@@ -257,6 +285,144 @@
     "planIdentity": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "dataProductType": {
+      "type": "string",
+      "enum": [
+        "Master",
+        "Reference",
+        "Analytical",
+        "AI",
+        "MasterDataAndReferenceData",
+        "BusinessSystemOrApplication",
+        "ModelTypes",
+        "DashboardsOrReports",
+        "Operational",
+        "MLAITrainingDataSet",
+        "MLAITestingDataSet",
+        "TransactionalDataset",
+        "AnalyticsModel",
+        "SemanticModel"
+      ]
+    },
+    "dataProductOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "dataProductDesiredProperties": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "domain", "type", "description", "businessUse", "owners"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "$ref": "#/$defs/uuid"
+        },
+        "type": {
+          "$ref": "#/$defs/dataProductType"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        "businessUse": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owners": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/dataProductOwner"
+          }
+        },
+        "audience": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "DataEngineer",
+              "BIEngineer",
+              "DataAnalyst",
+              "DataScientist",
+              "BusinessAnalyst",
+              "SoftwareEngineer",
+              "BusinessUser",
+              "Executive"
+            ]
+          }
+        },
+        "updateFrequency": {
+          "type": "string",
+          "enum": [
+            "Hourly",
+            "Daily",
+            "Weekly",
+            "Monthly",
+            "Quarterly",
+            "Yearly"
+          ]
+        },
+        "endorsed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "changeOutcome": {
+      "type": "string",
+      "enum": ["create", "replace", "no-op", "remote-only", "blocked"]
+    },
+    "changeReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "path"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "before": {
+          "type": "string"
+        },
+        "after": {
+          "type": "string"
+        }
+      }
+    },
+    "changeReasons": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/changeReason"
+      }
+    },
+    "operationAction": {
+      "type": "string",
+      "enum": ["create", "replace"]
     }
   }
 }

@@ -43,11 +43,35 @@ BUSINESS_DOMAIN_REPLACE_REASON_CODES = frozenset(
     }
 )
 
+DATA_PRODUCT_REPLACE_REASON_CODES = frozenset(
+    {
+        "properties.name.changed",
+        "properties.domain.changed",
+        "properties.type.changed",
+        "properties.description.changed",
+        "properties.businessUse.changed",
+        "properties.owners.changed",
+        "properties.audience.changed",
+        "properties.updateFrequency.changed",
+        "properties.endorsed.changed",
+    }
+)
+
+MATERIAL_REPLACE_REASON_CODES = (
+    BUSINESS_DOMAIN_REPLACE_REASON_CODES | DATA_PRODUCT_REPLACE_REASON_CODES
+)
+
 BLOCKING_REASON_CODES_V3 = frozenset(
     {
         "remote.unsupported_configurable_field",
         "remote.business_domain_name_conflict",
+        "remote.status_blocks_replace",
         "remote_state.hierarchy_ambiguous",
+        "plan.domain_move_unverified",
+        "plan.domain_dependency_blocked",
+        "plan.domain_unresolved",
+        "plan.domain_uninterpreted",
+        "plan.remote_capture_incomplete",
     }
 )
 
@@ -56,13 +80,25 @@ REASON_PATHS_V3: dict[str, str | None] = {
     "remote.absent_desired": "/",
     "remote.unsupported_configurable_field": None,
     "remote.business_domain_name_conflict": "/properties/name",
+    "remote.status_blocks_replace": "/safetyProperties/status",
     "remote_state.hierarchy_ambiguous": "/",
+    "plan.domain_move_unverified": "/properties/domain",
+    "plan.domain_dependency_blocked": "/properties/domain",
+    "plan.domain_unresolved": "/properties/domain",
+    "plan.domain_uninterpreted": "/properties/domain",
+    "plan.remote_capture_incomplete": "/",
     "properties.name.changed": "/properties/name",
     "properties.description.changed": "/properties/description",
     "properties.parentId.changed": "/properties/parentId",
     "properties.status.changed": "/properties/status",
     "properties.type.changed": "/properties/type",
     "properties.isRestricted.changed": "/properties/isRestricted",
+    "properties.domain.changed": "/properties/domain",
+    "properties.businessUse.changed": "/properties/businessUse",
+    "properties.owners.changed": "/properties/owners",
+    "properties.audience.changed": "/properties/audience",
+    "properties.updateFrequency.changed": "/properties/updateFrequency",
+    "properties.endorsed.changed": "/properties/endorsed",
 }
 
 NO_BEFORE_AFTER_CODES_V3 = frozenset(
@@ -71,6 +107,11 @@ NO_BEFORE_AFTER_CODES_V3 = frozenset(
         "remote.absent_desired",
         "remote.unsupported_configurable_field",
         "remote_state.hierarchy_ambiguous",
+        "plan.domain_move_unverified",
+        "plan.domain_dependency_blocked",
+        "plan.domain_unresolved",
+        "plan.domain_uninterpreted",
+        "plan.remote_capture_incomplete",
     }
 )
 
@@ -226,10 +267,14 @@ def validate_remote_state_for_planning_v3(remote_state: RemoteStateV3) -> None:
 def _validate_reason_shape_v3(reason: dict[str, Any], *, path: str) -> None:
     code = reason.get("code")
     reason_path = reason.get("path")
-    if not isinstance(code, str) or code not in REASON_PATHS_V3:
+    if not isinstance(code, str) or (
+        code not in REASON_PATHS_V3 and not code.startswith("remote_state.")
+    ):
         _raise_integrity("plan.invalid_reason", "unknown or unsupported reason code", path=path)
 
-    expected_path = REASON_PATHS_V3[code]
+    expected_path = REASON_PATHS_V3.get(code)
+    if expected_path is None and code.startswith("remote_state."):
+        expected_path = "/"
     if expected_path is None:
         if (
             not isinstance(reason_path, str)
@@ -269,7 +314,22 @@ def _validate_reason_shape_v3(reason: dict[str, Any], *, path: str) -> None:
             )
         return
 
-    if code in BUSINESS_DOMAIN_REPLACE_REASON_CODES:
+    if code == "remote.status_blocks_replace":
+        if not has_before or has_after:
+            _raise_integrity(
+                "plan.invalid_reason",
+                "status blocks replace reason requires before and forbids after",
+                path=path,
+            )
+        if not isinstance(before, str) or not before:
+            _raise_integrity(
+                "plan.invalid_reason",
+                "status blocks replace before must be a non-empty string",
+                path=path,
+            )
+        return
+
+    if code in MATERIAL_REPLACE_REASON_CODES:
         if not has_before or not has_after:
             _raise_integrity(
                 "plan.invalid_reason",
@@ -290,6 +350,9 @@ def _validate_reason_shape_v3(reason: dict[str, Any], *, path: str) -> None:
             )
         return
 
+    if code.startswith("remote_state.") or code.startswith("plan."):
+        return
+
     _raise_integrity("plan.invalid_reason", "unsupported reason code", path=path)
 
 
@@ -297,11 +360,14 @@ def _reason_codes(reasons: list[dict[str, Any]]) -> list[str]:
     return [str(item["code"]) for item in reasons]
 
 
-def _desired_lookup(desired_state: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    lookup: dict[str, dict[str, Any]] = {}
+def _desired_lookup(desired_state: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    lookup: dict[tuple[str, str], dict[str, Any]] = {}
     for item in desired_state.get("businessDomains", []):
         if isinstance(item, dict) and isinstance(item.get("id"), str):
-            lookup[item["id"]] = item
+            lookup[("businessDomain", item["id"])] = item
+    for item in desired_state.get("dataProducts", []):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            lookup[("dataProduct", item["id"])] = item
     return lookup
 
 
@@ -362,6 +428,51 @@ def _bind_reason_after_to_desired_v3(
                     "isRestricted reason after must equal desired isRestricted",
                     path=reason_path,
                 )
+        elif code == "properties.domain.changed":
+            if reason_item.get("after") != props["domain"]:
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "domain reason after must equal desired domain",
+                    path=reason_path,
+                )
+        elif code == "properties.businessUse.changed":
+            if reason_item.get("after") != props["businessUse"]:
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "businessUse reason after must equal desired businessUse",
+                    path=reason_path,
+                )
+        elif code == "properties.owners.changed":
+            if reason_item.get("after") != dumps_canonical_value_scalar(props["owners"]):
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "owners reason after must equal desired owners",
+                    path=reason_path,
+                )
+        elif code == "properties.audience.changed":
+            desired_audience = props.get("audience")
+            if reason_item.get("after") != dumps_canonical_value_scalar(desired_audience):
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "audience reason after must equal desired audience",
+                    path=reason_path,
+                )
+        elif code == "properties.updateFrequency.changed":
+            desired_frequency = props.get("updateFrequency")
+            if reason_item.get("after") != dumps_canonical_value_scalar(desired_frequency):
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "updateFrequency reason after must equal desired updateFrequency",
+                    path=reason_path,
+                )
+        elif code == "properties.endorsed.changed":
+            desired_endorsed = props.get("endorsed")
+            if reason_item.get("after") != dumps_canonical_value_scalar(desired_endorsed):
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "endorsed reason after must equal desired endorsed",
+                    path=reason_path,
+                )
 
 
 def dumps_canonical_value_scalar(value: object) -> str:
@@ -372,6 +483,7 @@ def dumps_canonical_value_scalar(value: object) -> str:
 
 def _validate_outcome_reasons_v3(
     *,
+    resource_type: str,
     outcome: str,
     reasons: list[dict[str, Any]],
     has_desired: bool,
@@ -380,6 +492,12 @@ def _validate_outcome_reasons_v3(
 ) -> None:
     codes = _reason_codes(reasons)
     _bind_reason_after_to_desired_v3(reasons, desired, path=path)
+
+    replace_codes = (
+        BUSINESS_DOMAIN_REPLACE_REASON_CODES
+        if resource_type == "businessDomain"
+        else DATA_PRODUCT_REPLACE_REASON_CODES
+    )
 
     if outcome == "create":
         if not has_desired:
@@ -399,7 +517,7 @@ def _validate_outcome_reasons_v3(
             _raise_integrity(
                 "plan.invalid_membership", "replace requires desired resource", path=path
             )
-        if not codes or not all(code in BUSINESS_DOMAIN_REPLACE_REASON_CODES for code in codes):
+        if not codes or not all(code in replace_codes for code in codes):
             _raise_integrity(
                 "plan.invalid_reason_outcome",
                 "replace reasons must be property change codes only",
@@ -456,7 +574,10 @@ def _validate_outcome_reasons_v3(
                 path=path,
             )
         if not any(
-            code in BLOCKING_REASON_CODES_V3 or code.startswith("remote_state.") for code in codes
+            code in BLOCKING_REASON_CODES_V3
+            or code.startswith("remote_state.")
+            or code.startswith("plan.")
+            for code in codes
         ):
             _raise_integrity(
                 "plan.invalid_reason_outcome",
@@ -601,27 +722,35 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
         "remote-only": 0,
         "blocked": 0,
     }
-    previous_item_id: str | None = None
+    previous_item_sort: tuple[int, str] | None = None
     for index, item in enumerate(change_items):
         item_path = f"/changeSet/items/{index}"
         if not isinstance(item, dict):
             _raise_integrity(
                 "plan.invalid_schema", "changeSet item must be an object", path=item_path
             )
-        domain_id = item.get("id")
-        if normalize_uuid_string(domain_id) is None:
+        resource_type = item.get("type")
+        if resource_type not in {"businessDomain", "dataProduct"}:
+            _raise_integrity(
+                "plan.invalid_schema",
+                "changeSet item type must be businessDomain or dataProduct",
+                path=f"{item_path}/type",
+            )
+        item_id = item.get("id")
+        if normalize_uuid_string(item_id) is None:
             _raise_integrity(
                 "plan.noncanonical_input",
                 "changeSet item id must be a valid UUID",
                 path=f"{item_path}/id",
             )
-        if previous_item_id is not None and str(domain_id) < previous_item_id:
+        item_sort = (0 if resource_type == "businessDomain" else 1, str(item_id))
+        if previous_item_sort is not None and item_sort < previous_item_sort:
             _raise_integrity(
                 "plan.noncanonical_input",
-                "changeSet items must be sorted by id",
+                "changeSet items must be sorted by type then id",
                 path=item_path,
             )
-        previous_item_id = str(domain_id)
+        previous_item_sort = item_sort
 
         outcome = item.get("outcome")
         if outcome not in counts:
@@ -663,10 +792,11 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
             previous_reason_sort = sort_key
 
         _validate_outcome_reasons_v3(
+            resource_type=str(resource_type),
             outcome=str(outcome),
             reasons=reasons,
-            has_desired=str(domain_id) in desired_lookup,
-            desired=desired_lookup.get(str(domain_id)),
+            has_desired=(str(resource_type), str(item_id)) in desired_lookup,
+            desired=desired_lookup.get((str(resource_type), str(item_id))),
             path=item_path,
         )
 
@@ -674,22 +804,39 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
     if not isinstance(operations, list):
         _raise_integrity("plan.invalid_schema", "operations must be an array", path="/operations")
 
-    expected_ops: list[tuple[str, str]] = []
-    create_ids = [item["id"] for item in change_items if item["outcome"] == "create"]
+    expected_ops: list[tuple[str, str, str]] = []
+    bd_items = [item for item in change_items if item.get("type") == "businessDomain"]
+    dp_items = [item for item in change_items if item.get("type") == "dataProduct"]
+    create_ids = [item["id"] for item in bd_items if item["outcome"] == "create"]
     parent_by_id: dict[str, str | None] = {}
     for domain_id, raw in desired_lookup.items():
-        parent_by_id[domain_id] = raw["properties"].get("parentId")
+        if domain_id[0] != "businessDomain":
+            continue
+        parent_by_id[domain_id[1]] = raw["properties"].get("parentId")
     ordered_creates = _topological_create_ids(create_ids, parent_by_id)
     for domain_id in ordered_creates:
-        expected_ops.append(("create", domain_id))
+        expected_ops.append(("businessDomain", "create", domain_id))
     replace_ids = sorted(
         item["id"]
-        for item in change_items
+        for item in bd_items
         if item["outcome"] == "replace"
         and "remote.unsupported_configurable_field" not in _reason_codes(item["reasons"])
     )
     for domain_id in replace_ids:
-        expected_ops.append(("replace", domain_id))
+        expected_ops.append(("businessDomain", "replace", domain_id))
+    dp_create_ids = sorted(item["id"] for item in dp_items if item["outcome"] == "create")
+    for product_id in dp_create_ids:
+        expected_ops.append(("dataProduct", "create", product_id))
+    dp_replace_ids = sorted(
+        item["id"]
+        for item in dp_items
+        if item["outcome"] == "replace"
+        and "remote.unsupported_configurable_field" not in _reason_codes(item["reasons"])
+        and "remote.status_blocks_replace" not in _reason_codes(item["reasons"])
+        and "plan.domain_move_unverified" not in _reason_codes(item["reasons"])
+    )
+    for product_id in dp_replace_ids:
+        expected_ops.append(("dataProduct", "replace", product_id))
 
     if len(operations) != len(expected_ops):
         _raise_integrity(
@@ -698,7 +845,7 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
             path="/operations",
         )
 
-    previous_op_sort: tuple[int, str] | None = None
+    previous_op_sort: tuple[int, int, str] | None = None
     for index, operation in enumerate(operations):
         op_path = f"/operations/{index}"
         if operation.get("sequence") != index + 1:
@@ -708,11 +855,18 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
                 path=op_path,
             )
         action = operation.get("action")
+        op_type = operation.get("type")
         op_id = operation.get("id")
         if action not in {"create", "replace"}:
             _raise_integrity(
                 "plan.invalid_operation_mapping",
                 "operation action must be create or replace",
+                path=op_path,
+            )
+        if op_type not in {"businessDomain", "dataProduct"}:
+            _raise_integrity(
+                "plan.invalid_operation_mapping",
+                "operation type must be businessDomain or dataProduct",
                 path=op_path,
             )
         if normalize_uuid_string(op_id) is None:
@@ -721,16 +875,18 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
                 "operation id must be a valid UUID",
                 path=f"{op_path}/id",
             )
-        op_sort = (0 if action == "create" else 1, str(op_id))
+        type_order = 0 if op_type == "businessDomain" else 1
+        action_order = 0 if action == "create" else 1
+        op_sort = (type_order, action_order, str(op_id))
         if previous_op_sort is not None and op_sort < previous_op_sort:
             _raise_integrity(
                 "plan.noncanonical_input",
-                "operations must be ordered with creates before replaces",
+                "operations must be ordered with business domains before data products",
                 path=op_path,
             )
         previous_op_sort = op_sort
-        expected_action, expected_id = expected_ops[index]
-        if action != expected_action or str(op_id) != expected_id:
+        expected_type, expected_action, expected_id = expected_ops[index]
+        if action != expected_action or str(op_id) != expected_id or op_type != expected_type:
             _raise_integrity(
                 "plan.invalid_operation_mapping",
                 "operation does not match changeSet create/replace mapping",

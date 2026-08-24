@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from purview_governance.desired.models_v3 import BusinessDomainDesiredState, DesiredStateV3
+from purview_governance.diff.data_product import diff_data_products
 from purview_governance.diff.models import DiffDocument, DiffOutcome, DiffReason
-from purview_governance.diff.models_v3 import DiffBusinessDomainItem
+from purview_governance.diff.models_v3 import DiffBusinessDomainItem, DiffDataProductItem
 from purview_governance.diff.reasons import reason, sort_reasons
 from purview_governance.remote_state.canonical import canonical_json_scalar
 from purview_governance.remote_state.models import UnsupportedConfigurableField
@@ -214,10 +215,10 @@ def _sort_items(items: list[DiffBusinessDomainItem]) -> tuple[DiffBusinessDomain
     return tuple(sorted(items, key=lambda item: item.id))
 
 
-def diff_desired_vs_remote_v3(
+def _diff_business_domains_only(
     desired: DesiredStateV3,
     remote: RemoteStateV3,
-) -> DiffDocument:
+) -> tuple[DiffBusinessDomainItem, ...]:
     """Compare desired Business Domains against remote-state/v3 (UUID-only matching)."""
     remote_by_id: dict[str, NormalizedBusinessDomain] = {
         item.id: item for item in remote.business_domains
@@ -262,4 +263,22 @@ def diff_desired_vs_remote_v3(
             if item is not None:
                 items.append(item)
 
-    return DiffDocument(items=_sort_items(items))
+    return _sort_items(items)
+
+
+def _combined_sort_key(
+    item: DiffBusinessDomainItem | DiffDataProductItem,
+) -> tuple[int, str]:
+    type_rank = 0 if item.resource_type == "businessDomain" else 1
+    return (type_rank, item.id)
+
+
+def diff_desired_vs_remote_v3(
+    desired: DesiredStateV3,
+    remote: RemoteStateV3,
+) -> DiffDocument:
+    """Compare desired Unified Catalog resources against remote-state/v3."""
+    domain_items = _diff_business_domains_only(desired, remote)
+    product_items = diff_data_products(desired, remote)
+    combined = tuple(sorted([*domain_items, *product_items], key=_combined_sort_key))
+    return DiffDocument(items=combined)

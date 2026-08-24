@@ -22,6 +22,62 @@ BusinessDomainType = Literal[
     "Project",
 ]
 
+DataProductType = Literal[
+    "Master",
+    "Reference",
+    "Analytical",
+    "AI",
+    "MasterDataAndReferenceData",
+    "BusinessSystemOrApplication",
+    "ModelTypes",
+    "DashboardsOrReports",
+    "Operational",
+    "MLAITrainingDataSet",
+    "MLAITestingDataSet",
+    "TransactionalDataset",
+    "AnalyticsModel",
+    "SemanticModel",
+]
+
+AudienceType = Literal[
+    "DataEngineer",
+    "BIEngineer",
+    "DataAnalyst",
+    "DataScientist",
+    "BusinessAnalyst",
+    "SoftwareEngineer",
+    "BusinessUser",
+    "Executive",
+]
+
+UpdateFrequencyType = Literal[
+    "Hourly",
+    "Daily",
+    "Weekly",
+    "Monthly",
+    "Quarterly",
+    "Yearly",
+]
+
+DATA_PRODUCT_TYPES: frozenset[str] = frozenset(
+    {
+        "Master",
+        "Reference",
+        "Analytical",
+        "AI",
+        "MasterDataAndReferenceData",
+        "BusinessSystemOrApplication",
+        "ModelTypes",
+        "DashboardsOrReports",
+        "Operational",
+        "MLAITrainingDataSet",
+        "MLAITestingDataSet",
+        "TransactionalDataset",
+        "AnalyticsModel",
+        "SemanticModel",
+    },
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TargetConfigV3:
@@ -29,6 +85,12 @@ class TargetConfigV3:
 
     surface: str
     tenant_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DataProductOwnerConfig:
+    id: str
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,10 +128,68 @@ class BusinessDomainResourceConfig:
         }
 
 
-def business_domain_resource_sort_key(
-    resource: BusinessDomainResourceConfig,
-) -> str:
-    return resource.id
+@dataclass(frozen=True, slots=True)
+class DataProductResourceConfig:
+    """Desired Data Product resource (config/v3)."""
+
+    id: str
+    name: str
+    domain: str
+    product_type: DataProductType
+    description: str
+    business_use: str
+    owners: tuple[DataProductOwnerConfig, ...]
+    audience: tuple[AudienceType, ...] | None = None
+    update_frequency: UpdateFrequencyType | None = None
+    endorsed: bool | None = None
+
+    @property
+    def resource_type(self) -> Literal["dataProduct"]:
+        return "dataProduct"
+
+    def to_document(self) -> dict[str, object]:
+        properties: dict[str, object] = {
+            "name": self.name,
+            "domain": self.domain,
+            "type": self.product_type,
+            "description": self.description,
+            "businessUse": self.business_use,
+            "owners": [
+                {
+                    "id": owner.id,
+                    **({"description": owner.description} if owner.description is not None else {}),
+                }
+                for owner in self.owners
+            ],
+        }
+        if self.audience is not None:
+            properties["audience"] = list(self.audience)
+        if self.update_frequency is not None:
+            properties["updateFrequency"] = self.update_frequency
+        if self.endorsed is not None:
+            properties["endorsed"] = self.endorsed
+        return {
+            "type": "dataProduct",
+            "id": self.id,
+            "properties": properties,
+        }
+
+
+ResourceConfigV3 = BusinessDomainResourceConfig | DataProductResourceConfig
+
+
+def business_domain_resource_sort_key(resource: BusinessDomainResourceConfig) -> tuple[int, str]:
+    return (0, resource.id)
+
+
+def data_product_resource_sort_key(resource: DataProductResourceConfig) -> tuple[int, str]:
+    return (1, resource.id)
+
+
+def resource_sort_key(resource: ResourceConfigV3) -> tuple[int, str]:
+    if isinstance(resource, BusinessDomainResourceConfig):
+        return business_domain_resource_sort_key(resource)
+    return data_product_resource_sort_key(resource)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,10 +199,9 @@ class GovernanceConfigV3:
     api_version: str
     target: TargetConfigV3
     authentication: AuthenticationConfig
-    resources: tuple[BusinessDomainResourceConfig, ...] = ()
+    resources: tuple[ResourceConfigV3, ...] = ()
 
     def to_document(self) -> dict[str, object]:
-        """Return the canonical document shape used for serialization."""
         return {
             "apiVersion": self.api_version,
             "authentication": {"strategy": self.authentication.strategy},
@@ -95,7 +214,19 @@ class GovernanceConfigV3:
 
     @property
     def business_domains(self) -> tuple[BusinessDomainResourceConfig, ...]:
-        return self.resources
+        return tuple(
+            resource
+            for resource in self.resources
+            if isinstance(resource, BusinessDomainResourceConfig)
+        )
+
+    @property
+    def data_products(self) -> tuple[DataProductResourceConfig, ...]:
+        return tuple(
+            resource
+            for resource in self.resources
+            if isinstance(resource, DataProductResourceConfig)
+        )
 
 
 def to_canonical_json_v3(config: GovernanceConfigV3) -> str:

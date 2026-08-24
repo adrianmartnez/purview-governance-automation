@@ -1,4 +1,4 @@
-"""Deterministic local Unified Catalog contract-test server (Business Domains enumerate)."""
+"""Deterministic local Unified Catalog contract-test server (Business Domains + Data Products)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 
 from purview_governance.unified_catalog.constants import (
     BUSINESS_DOMAINS_PATH,
+    DATA_PRODUCTS_PATH,
     UNIFIED_CATALOG_API_VERSION,
 )
 from tests.contract.auth import authorization_is_valid
@@ -68,6 +69,47 @@ class RecordedRequest:
     write_only: str | None = None
 
 
+def paged_data_products_fixture(
+    items: list[dict[str, Any]],
+    *,
+    next_link: str | None = None,
+) -> dict[str, Any]:
+    """Build a PagedDataProduct response body."""
+    body: dict[str, Any] = {"value": list(items)}
+    if next_link is not None:
+        body["nextLink"] = next_link
+    return body
+
+
+def fictional_data_product_item(
+    *,
+    product_id: str = "40000000-0000-4000-8000-000000000001",
+    name: str = "fictional-sales-product",
+    domain_id: str = "10000000-0000-4000-8000-000000000001",
+    product_type: str = "Master",
+    owner_id: str = "30000000-0000-4000-8000-000000000001",
+) -> dict[str, Any]:
+    """Build a fictional Data Product item for contract/unit fixtures."""
+    return {
+        "id": product_id,
+        "name": name,
+        "domain": domain_id,
+        "type": product_type,
+        "description": "Fictional data product description",
+        "businessUse": "Fictional business use",
+        "status": "DRAFT",
+        "contacts": {
+            "owner": [{"id": owner_id}],
+        },
+        "systemData": {
+            "createdAt": "1970-01-01T00:00:00.000Z",
+            "createdBy": "00000000-0000-0000-0000-000000000001",
+            "lastModifiedAt": "1970-01-01T00:00:00.000Z",
+            "lastModifiedBy": "00000000-0000-0000-0000-000000000001",
+        },
+    }
+
+
 @dataclass
 class UnifiedCatalogScenarioState:
     enumerate_mode: str = "success"
@@ -75,6 +117,10 @@ class UnifiedCatalogScenarioState:
     enumerate_page2_items: list[dict[str, Any]] = field(default_factory=list)
     enumerate_next_link: str | None = None
     cross_origin_next_link: str | None = None
+    enumerate_data_products_mode: str = "success"
+    enumerate_data_products_items: list[dict[str, Any]] = field(default_factory=list)
+    enumerate_data_products_page2_items: list[dict[str, Any]] = field(default_factory=list)
+    enumerate_data_products_next_link: str | None = None
     recordings: list[RecordedRequest] = field(default_factory=list)
 
 
@@ -148,6 +194,65 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                 return False
             return True
 
+        def _handle_enumerate_data_products(self, parsed: Any) -> None:
+            if not self._validate_api_version(parsed):
+                return
+
+            mode = state.enumerate_data_products_mode
+            if mode == "unauthorized":
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return
+            if mode == "forbidden":
+                self._send_json(
+                    403, {"error": {"code": "Forbidden", "message": SECRET_SENTINEL_CONTRACT_403}}
+                )
+                return
+            if mode == "not_found":
+                self._send_json(
+                    404, {"error": {"code": "NotFound", "message": SECRET_SENTINEL_CONTRACT_404}}
+                )
+                return
+            if mode == "throttled":
+                self._send_json(
+                    429,
+                    {"error": {"code": "TooManyRequests", "message": SECRET_SENTINEL_CONTRACT_429}},
+                )
+                return
+            if mode == "server_error":
+                self._send_json(
+                    500, {"error": {"code": "ServerError", "message": SECRET_SENTINEL_CONTRACT_500}}
+                )
+                return
+            if mode == "bad_json":
+                self._send_raw(200, b"not-json", "application/json")
+                return
+            if mode == "bad_shape":
+                self._send_json(200, {"value": "not-an-array"})
+                return
+            if mode == "paginated":
+                query = parse_qs(parsed.query)
+                if "$skipToken" in query:
+                    items = state.enumerate_data_products_page2_items or [
+                        fictional_data_product_item(
+                            product_id="bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee",
+                            name="fictional-product-page-two",
+                        )
+                    ]
+                    self._send_json(200, paged_data_products_fixture(items))
+                    return
+                page_one = state.enumerate_data_products_items or [fictional_data_product_item()]
+                token = "fictional-data-product-skip-token"
+                next_link = state.enumerate_data_products_next_link or (
+                    f"http://127.0.0.1:{self.server.server_address[1]}"
+                    f"{DATA_PRODUCTS_PATH}"
+                    f"?api-version={UNIFIED_CATALOG_API_VERSION}&$skipToken={token}"
+                )
+                self._send_json(200, paged_data_products_fixture(page_one, next_link=next_link))
+                return
+
+            items = state.enumerate_data_products_items or [fictional_data_product_item()]
+            self._send_json(200, paged_data_products_fixture(items))
+
         def _handle_enumerate(self, parsed: Any) -> None:
             if not self._validate_api_version(parsed):
                 return
@@ -215,16 +320,35 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             self._record()
-            if parsed.path != BUSINESS_DOMAINS_PATH:
-                self._send_json(404, {"error": {"code": "NotFound"}})
+            if parsed.path == BUSINESS_DOMAINS_PATH:
+                if not self._require_auth():
+                    self._send_json(
+                        401,
+                        {
+                            "error": {
+                                "code": "Unauthorized",
+                                "message": SECRET_SENTINEL_CONTRACT_401,
+                            }
+                        },
+                    )
+                    return
+                self._handle_enumerate(parsed)
                 return
-            if not self._require_auth():
-                self._send_json(
-                    401,
-                    {"error": {"code": "Unauthorized", "message": SECRET_SENTINEL_CONTRACT_401}},
-                )
+            if parsed.path == DATA_PRODUCTS_PATH:
+                if not self._require_auth():
+                    self._send_json(
+                        401,
+                        {
+                            "error": {
+                                "code": "Unauthorized",
+                                "message": SECRET_SENTINEL_CONTRACT_401,
+                            }
+                        },
+                    )
+                    return
+                self._handle_enumerate_data_products(parsed)
                 return
-            self._handle_enumerate(parsed)
+            self._send_json(404, {"error": {"code": "NotFound"}})
 
     return UnifiedCatalogContractHandler
 
@@ -237,6 +361,10 @@ def start_unified_catalog_contract_server(
     enumerate_page2_items: list[dict[str, Any]] | None = None,
     enumerate_next_link: str | None = None,
     cross_origin_next_link: str | None = None,
+    enumerate_data_products_mode: str = "success",
+    enumerate_data_products_items: list[dict[str, Any]] | None = None,
+    enumerate_data_products_page2_items: list[dict[str, Any]] | None = None,
+    enumerate_data_products_next_link: str | None = None,
 ) -> Iterator[UnifiedCatalogContractServer]:
     """Start a daemon Unified Catalog contract server on an ephemeral loopback port."""
     state = UnifiedCatalogScenarioState(
@@ -245,6 +373,10 @@ def start_unified_catalog_contract_server(
         enumerate_page2_items=list(enumerate_page2_items or []),
         enumerate_next_link=enumerate_next_link,
         cross_origin_next_link=cross_origin_next_link,
+        enumerate_data_products_mode=enumerate_data_products_mode,
+        enumerate_data_products_items=list(enumerate_data_products_items or []),
+        enumerate_data_products_page2_items=list(enumerate_data_products_page2_items or []),
+        enumerate_data_products_next_link=enumerate_data_products_next_link,
     )
     handler = _make_handler(state)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)

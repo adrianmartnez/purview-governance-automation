@@ -55,22 +55,30 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
   `https://api.purview-service.microsoft.com` (independent from Scanning
   `{account}.purview.azure.com` / API `2023-09-01`)
 - `PurviewUnifiedCatalogClient` with read-only `enumerate_business_domains()`
-  contract proof (PagedDomain pagination)
-- **Business Domains** declarative config/remote/diff/plan via contract **v3**
-  (`purview-governance-config/v3`, `purview-remote-state/v3`,
+  and opt-in `enumerate_data_products()` (PagedDomain / PagedDataProduct
+  pagination)
+- **Business Domains + Data Products** declarative config/remote/diff/plan via
+  contract **v3** (`purview-governance-config/v3`, `purview-remote-state/v3`,
   `purview-governance-plan/v3`) — **planning-only**; no Unified Catalog apply in
-  PR2
-- config v3 requires declared `target.tenantId` (UUID); production endpoint is
-  derived — **not** live-verified against credentials in PR2
-- `executionEligibility: ready` means no known v3 blockers — **not** a guarantee
-  of successful Microsoft execution (PR6 closes tenant binding and REST payload)
-- compatibility metadata (`surface=unified-catalog`, runtime API version pinned)
-- offline loopback contract tests for Unified Catalog (separate from Scanning
-  contract server)
-- example: `examples/fictional-governance-config-v3.yaml`
-- **not** Data Products / Glossary Terms as Code yet
+  v1.2
+- default remote capture remains **Business Domain–only** (Shape A, PR2
+  compatible); Data Product capture is **opt-in**
+  (`include_data_products=True`, Shape B)
+- enumeration is **permission-scoped** — empty capture means zero visible items
+  for the credentials used, not tenant-wide inventory
+- duplicate Data Product **names** are allowed; matching is UUID-only
+- `target.tenantId` is declared, not live-verified in v1.2
+- remote `status` and `systemData.provisioningState` are safety-only (no desired
+  status; no publish/unpublish/expire automation)
+- deferred remote configurables (`managedAttributes`, `termsOfUse`, etc.) block
+  unsafe replace to avoid clobber
+- domain move (`desired.domain != remote.domain`) is blocked by project
+  fail-closed policy (`plan.domain_move_unverified`)
+- **not** Glossary Terms / Data Assets / relationships as Code yet
 - **not** live-tenant validation; contract-tested offline ≠ production Purview
   validation
+- `executionEligibility: ready` means no known v3 blockers — **not** a guarantee
+  of successful Microsoft execution (PR6 fresh verification before write)
 
 ### Contract-tested offline
 

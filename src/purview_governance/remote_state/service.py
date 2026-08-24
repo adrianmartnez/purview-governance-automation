@@ -17,6 +17,13 @@ from purview_governance.remote_state.classification_normalize import (
 from purview_governance.remote_state.classification_policy import (
     SUPPORTED_CLASSIFICATION_RULE_KIND,
 )
+from purview_governance.remote_state.data_product_normalize import (
+    normalize_data_product,
+)
+from purview_governance.remote_state.data_product_policy import (
+    CAPTURED_RESOURCE_TYPE_BUSINESS_DOMAIN,
+    CAPTURED_RESOURCE_TYPE_DATA_PRODUCT,
+)
 from purview_governance.remote_state.errors import RemoteStateError
 from purview_governance.remote_state.models import (
     NormalizedClassificationRule,
@@ -34,9 +41,11 @@ from purview_governance.remote_state.models import (
 )
 from purview_governance.remote_state.models_v3 import (
     NormalizedBusinessDomain,
+    NormalizedDataProduct,
     RemoteStateV3,
     RemoteTargetContextV3,
     UninterpretedBusinessDomain,
+    UninterpretedDataProduct,
     build_remote_state_v3,
 )
 from purview_governance.remote_state.normalize import (
@@ -73,7 +82,10 @@ from purview_governance.scanning.names import (
     validate_scan_name,
     validate_scan_ruleset_name,
 )
-from purview_governance.unified_catalog.client import BusinessDomainListResult
+from purview_governance.unified_catalog.client import (
+    BusinessDomainListResult,
+    DataProductListResult,
+)
 from purview_governance.uuid_utils import require_uuid_string
 
 
@@ -112,6 +124,12 @@ class UnifiedCatalogReadClient(Protocol):
     def target_endpoint(self) -> str: ...
 
     def enumerate_business_domains(self) -> BusinessDomainListResult: ...
+
+
+class UnifiedCatalogDataProductReadClient(UnifiedCatalogReadClient, Protocol):
+    """Read-only seam extending v3 capture with Data Products enumerate."""
+
+    def enumerate_data_products(self) -> DataProductListResult: ...
 
 
 def _validate_artifact(document: dict[str, Any], *, schema: dict[str, Any]) -> None:
@@ -490,11 +508,21 @@ def capture_unified_catalog_remote_state_v3(
     client: UnifiedCatalogReadClient,
     *,
     tenant_id: str,
+    include_data_products: bool = False,
 ) -> RemoteStateV3:
     """Capture purview-remote-state/v3 via Business Domains enumerate.
 
     Read-only: never calls create / update / delete.
     ``tenant_id`` is declared target binding (not observed from enumerate).
+
+    When ``include_data_products`` is False (default), emits Shape A (PR2
+    compatible): Business Domains only, without ``capturedResourceTypes`` or
+    Data Product fields.
+
+    When ``include_data_products`` is True, the client must implement
+    ``enumerate_data_products``. Enumeration failures fail closed. Emits Shape B
+    with ``capturedResourceTypes`` ``['businessDomain', 'dataProduct']`` and
+    required ``dataProducts`` / ``uninterpretedDataProducts`` arrays.
     """
     from purview_governance.plan.identity import compute_target_context_identity_v3
 
@@ -529,10 +557,46 @@ def capture_unified_catalog_remote_state_v3(
         else:
             normalized.append(result)
 
+    data_products: tuple[NormalizedDataProduct, ...] = ()
+    uninterpreted_data_products: tuple[UninterpretedDataProduct, ...] = ()
+    captured_resource_types: tuple[str, ...] = ()
+
+    if include_data_products:
+        enumerate_data_products = getattr(client, "enumerate_data_products", None)
+        if enumerate_data_products is None:
+            raise RemoteStateError(
+                "remote_state.missing_capability",
+                "client must implement enumerate_data_products when include_data_products is True",
+            )
+        listed_products = enumerate_data_products()
+        normalized_products: list[NormalizedDataProduct] = []
+        uninterpreted_products: list[UninterpretedDataProduct] = []
+        for index, item in enumerate(listed_products.items):
+            if not isinstance(item, dict):
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "enumerate item must be a JSON object",
+                    path=f"/value/{index}",
+                )
+            result = normalize_data_product(item)
+            if isinstance(result, UninterpretedDataProduct):
+                uninterpreted_products.append(result)
+            else:
+                normalized_products.append(result)
+        data_products = tuple(normalized_products)
+        uninterpreted_data_products = tuple(uninterpreted_products)
+        captured_resource_types = (
+            CAPTURED_RESOURCE_TYPE_BUSINESS_DOMAIN,
+            CAPTURED_RESOURCE_TYPE_DATA_PRODUCT,
+        )
+
     state = build_remote_state_v3(
         tuple(normalized),
         tuple(uninterpreted),
         target_context,
+        data_products=data_products,
+        uninterpreted_data_products=uninterpreted_data_products,
+        captured_resource_types=captured_resource_types,
     )
     try:
         _validate_artifact(state.to_document(), schema=load_remote_state_v3_schema())

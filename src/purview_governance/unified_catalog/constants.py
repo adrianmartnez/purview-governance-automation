@@ -28,3 +28,4 @@ DEFAULT_TIMEOUT = httpx.Timeout(
 )
 
 BUSINESS_DOMAINS_PATH = "/datagovernance/catalog/businessdomains"
+DATA_PRODUCTS_PATH = "/datagovernance/catalog/dataProducts"
