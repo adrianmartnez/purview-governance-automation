@@ -30,3 +30,7 @@ DEFAULT_TIMEOUT = httpx.Timeout(
 BUSINESS_DOMAINS_PATH = "/datagovernance/catalog/businessdomains"
 DATA_PRODUCTS_PATH = "/datagovernance/catalog/dataProducts"
 GLOSSARY_TERMS_PATH = "/datagovernance/catalog/terms"
+DATA_ASSETS_PATH = "/datagovernance/catalog/dataAssets"
+DATA_COLUMNS_QUERY_PATH = "/datagovernance/catalog/dataColumns/query"
+
+DATA_COLUMN_QUERY_PAGE_SIZE = 100

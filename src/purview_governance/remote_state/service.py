@@ -17,6 +17,8 @@ from purview_governance.remote_state.classification_normalize import (
 from purview_governance.remote_state.classification_policy import (
     SUPPORTED_CLASSIFICATION_RULE_KIND,
 )
+from purview_governance.remote_state.data_asset_normalize import normalize_data_asset
+from purview_governance.remote_state.data_column_normalize import normalize_data_column
 from purview_governance.remote_state.data_product_normalize import (
     normalize_data_product,
 )
@@ -30,6 +32,9 @@ from purview_governance.remote_state.glossary_term_normalize import (
 )
 from purview_governance.remote_state.glossary_term_policy import (
     CAPTURED_RESOURCE_TYPE_GLOSSARY_TERM,
+)
+from purview_governance.remote_state.governance_relationship_normalize import (
+    normalize_governance_relationship,
 )
 from purview_governance.remote_state.models import (
     NormalizedClassificationRule,
@@ -47,13 +52,20 @@ from purview_governance.remote_state.models import (
 )
 from purview_governance.remote_state.models_v3 import (
     NormalizedBusinessDomain,
+    NormalizedDataAsset,
+    NormalizedDataColumn,
     NormalizedDataProduct,
     NormalizedGlossaryTerm,
+    NormalizedGovernanceRelationship,
+    ReadModelCoverageV3,
     RemoteStateV3,
     RemoteTargetContextV3,
     UninterpretedBusinessDomain,
+    UninterpretedDataAsset,
+    UninterpretedDataColumn,
     UninterpretedDataProduct,
     UninterpretedGlossaryTerm,
+    UninterpretedGovernanceRelationship,
     build_remote_state_v3,
 )
 from purview_governance.remote_state.normalize import (
@@ -92,8 +104,11 @@ from purview_governance.scanning.names import (
 )
 from purview_governance.unified_catalog.client import (
     BusinessDomainListResult,
+    DataAssetListResult,
+    DataColumnQueryResult,
     DataProductListResult,
     GlossaryTermListResult,
+    GovernanceRelationshipListResult,
 )
 from purview_governance.uuid_utils import require_uuid_string
 
@@ -145,6 +160,65 @@ class UnifiedCatalogGlossaryTermReadClient(UnifiedCatalogReadClient, Protocol):
     """Read-only seam extending v3 capture with Glossary Terms enumerate."""
 
     def enumerate_glossary_terms(self) -> GlossaryTermListResult: ...
+
+
+class UnifiedCatalogDataAssetReadClient(UnifiedCatalogReadClient, Protocol):
+    """Read-only seam extending v3 capture with Data Assets enumerate."""
+
+    def enumerate_data_assets(self) -> DataAssetListResult: ...
+
+
+class UnifiedCatalogDataColumnReadClient(UnifiedCatalogReadClient, Protocol):
+    """Read-only seam extending v3 capture with Data Column query."""
+
+    def query_data_columns(self) -> DataColumnQueryResult: ...
+
+
+class UnifiedCatalogGovernanceRelationshipReadClient(UnifiedCatalogReadClient, Protocol):
+    """Read-only seam for governance relationship list operations."""
+
+    def list_data_product_relationships(
+        self,
+        product_id: str,
+        *,
+        entity_type: str = "DATAASSET",
+    ) -> GovernanceRelationshipListResult: ...
+
+    def list_glossary_term_relationships(
+        self,
+        term_id: str,
+        *,
+        entity_type: str,
+        relationship_type: str = "Related",
+    ) -> GovernanceRelationshipListResult: ...
+
+
+def _collect_data_product_source_ids(
+    data_products: tuple[NormalizedDataProduct, ...],
+    uninterpreted_data_products: tuple[UninterpretedDataProduct, ...],
+) -> tuple[list[str], bool]:
+    ids: list[str] = [item.id for item in data_products]
+    missing_id = False
+    for item in uninterpreted_data_products:
+        if item.id is None:
+            missing_id = True
+        else:
+            ids.append(item.id)
+    return sorted(set(ids)), missing_id
+
+
+def _collect_glossary_term_source_ids(
+    glossary_terms: tuple[NormalizedGlossaryTerm, ...],
+    uninterpreted_glossary_terms: tuple[UninterpretedGlossaryTerm, ...],
+) -> tuple[list[str], bool]:
+    ids: list[str] = [item.id for item in glossary_terms]
+    missing_id = False
+    for item in uninterpreted_glossary_terms:
+        if item.id is None:
+            missing_id = True
+        else:
+            ids.append(item.id)
+    return sorted(set(ids)), missing_id
 
 
 def _validate_artifact(document: dict[str, Any], *, schema: dict[str, Any]) -> None:
@@ -525,6 +599,11 @@ def capture_unified_catalog_remote_state_v3(
     tenant_id: str,
     include_data_products: bool = False,
     include_glossary_terms: bool = False,
+    include_data_assets: bool = False,
+    include_data_columns: bool = False,
+    include_relationship_data_product_to_data_asset: bool = False,
+    include_relationship_glossary_term_to_data_asset: bool = False,
+    include_relationship_glossary_term_to_data_column: bool = False,
 ) -> RemoteStateV3:
     """Capture purview-remote-state/v3 via Business Domains enumerate.
 
@@ -538,6 +617,22 @@ def capture_unified_catalog_remote_state_v3(
     Shape C: ``include_glossary_terms=True`` only.
     Shape D: both flags True.
     """
+    if include_relationship_data_product_to_data_asset and not include_data_products:
+        raise RemoteStateError(
+            "remote_state.missing_capability",
+            "include_relationship_data_product_to_data_asset requires include_data_products",
+        )
+    if include_relationship_glossary_term_to_data_asset and not include_glossary_terms:
+        raise RemoteStateError(
+            "remote_state.missing_capability",
+            "include_relationship_glossary_term_to_data_asset requires include_glossary_terms",
+        )
+    if include_relationship_glossary_term_to_data_column and not include_glossary_terms:
+        raise RemoteStateError(
+            "remote_state.missing_capability",
+            "include_relationship_glossary_term_to_data_column requires include_glossary_terms",
+        )
+
     from purview_governance.plan.identity import compute_target_context_identity_v3
 
     declared_tenant_id = require_uuid_string(tenant_id, field_label="tenantId")
@@ -636,6 +731,202 @@ def capture_unified_catalog_remote_state_v3(
             marker.append(CAPTURED_RESOURCE_TYPE_GLOSSARY_TERM)
         captured_resource_types = tuple(marker)
 
+        captured_resource_types = tuple(marker)
+
+    data_assets: tuple[NormalizedDataAsset, ...] = ()
+    uninterpreted_data_assets: tuple[UninterpretedDataAsset, ...] = ()
+    data_columns: tuple[NormalizedDataColumn, ...] = ()
+    uninterpreted_data_columns: tuple[UninterpretedDataColumn, ...] = ()
+    governance_relationships: tuple[NormalizedGovernanceRelationship, ...] = ()
+    uninterpreted_governance_relationships: tuple[UninterpretedGovernanceRelationship, ...] = ()
+    read_model_coverage: ReadModelCoverageV3 | None = None
+
+    if include_data_assets:
+        enumerate_data_assets = getattr(client, "enumerate_data_assets", None)
+        if enumerate_data_assets is None:
+            raise RemoteStateError(
+                "remote_state.missing_capability",
+                "client must implement enumerate_data_assets when include_data_assets is True",
+            )
+        listed_assets = enumerate_data_assets()
+        normalized_assets: list[NormalizedDataAsset] = []
+        uninterpreted_assets: list[UninterpretedDataAsset] = []
+        for index, item in enumerate(listed_assets.items):
+            if not isinstance(item, dict):
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "enumerate item must be a JSON object",
+                    path=f"/value/{index}",
+                )
+            result = normalize_data_asset(item)
+            if isinstance(result, UninterpretedDataAsset):
+                uninterpreted_assets.append(result)
+            else:
+                normalized_assets.append(result)
+        data_assets = tuple(normalized_assets)
+        uninterpreted_data_assets = tuple(uninterpreted_assets)
+
+    if include_data_columns:
+        query_data_columns = getattr(client, "query_data_columns", None)
+        if query_data_columns is None:
+            raise RemoteStateError(
+                "remote_state.missing_capability",
+                "client must implement query_data_columns when include_data_columns is True",
+            )
+        listed_columns = query_data_columns()
+        normalized_columns: list[NormalizedDataColumn] = []
+        uninterpreted_columns: list[UninterpretedDataColumn] = []
+        for index, item in enumerate(listed_columns.items):
+            if not isinstance(item, dict):
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "query item must be a JSON object",
+                    path=f"/value/{index}",
+                )
+            result = normalize_data_column(item)
+            if isinstance(result, UninterpretedDataColumn):
+                uninterpreted_columns.append(result)
+            else:
+                normalized_columns.append(result)
+        data_columns = tuple(normalized_columns)
+        uninterpreted_data_columns = tuple(uninterpreted_columns)
+
+    relationship_flags = (
+        include_relationship_data_product_to_data_asset,
+        include_relationship_glossary_term_to_data_asset,
+        include_relationship_glossary_term_to_data_column,
+    )
+    if any(relationship_flags):
+        list_dp_rel = getattr(client, "list_data_product_relationships", None)
+        list_gt_rel = getattr(client, "list_glossary_term_relationships", None)
+        if include_relationship_data_product_to_data_asset and list_dp_rel is None:
+            raise RemoteStateError(
+                "remote_state.missing_capability",
+                "client must implement list_data_product_relationships",
+            )
+        if (
+            include_relationship_glossary_term_to_data_asset
+            or include_relationship_glossary_term_to_data_column
+        ) and list_gt_rel is None:
+            raise RemoteStateError(
+                "remote_state.missing_capability",
+                "client must implement list_glossary_term_relationships",
+            )
+
+        normalized_relationships: list[NormalizedGovernanceRelationship] = []
+        uninterpreted_relationships: list[UninterpretedGovernanceRelationship] = []
+
+        if include_relationship_data_product_to_data_asset:
+            dp_ids, missing_dp_id = _collect_data_product_source_ids(
+                data_products,
+                uninterpreted_data_products,
+            )
+            if missing_dp_id:
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "uninterpreted data product without id blocks relationship capture",
+                )
+            for product_id in dp_ids:
+                listed = list_dp_rel(product_id, entity_type="DATAASSET")
+                for index, item in enumerate(listed.items):
+                    if not isinstance(item, dict):
+                        raise RemoteStateError(
+                            "remote_state.invalid_shape",
+                            "relationship item must be a JSON object",
+                            path=f"/value/{index}",
+                        )
+                    result = normalize_governance_relationship(
+                        item,
+                        source_type="dataProduct",
+                        source_id=product_id,
+                        target_category="DATAASSET",
+                    )
+                    if isinstance(result, UninterpretedGovernanceRelationship):
+                        uninterpreted_relationships.append(result)
+                    else:
+                        normalized_relationships.append(result)
+
+        if (
+            include_relationship_glossary_term_to_data_asset
+            or include_relationship_glossary_term_to_data_column
+        ):
+            gt_ids, missing_gt_id = _collect_glossary_term_source_ids(
+                glossary_terms,
+                uninterpreted_glossary_terms,
+            )
+            if missing_gt_id:
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "uninterpreted glossary term without id blocks relationship capture",
+                )
+            for term_id in gt_ids:
+                if include_relationship_glossary_term_to_data_asset:
+                    listed = list_gt_rel(
+                        term_id,
+                        entity_type="DATAASSET",
+                        relationship_type="Related",
+                    )
+                    for index, item in enumerate(listed.items):
+                        if not isinstance(item, dict):
+                            raise RemoteStateError(
+                                "remote_state.invalid_shape",
+                                "relationship item must be a JSON object",
+                                path=f"/value/{index}",
+                            )
+                        result = normalize_governance_relationship(
+                            item,
+                            source_type="glossaryTerm",
+                            source_id=term_id,
+                            target_category="DATAASSET",
+                        )
+                        if isinstance(result, UninterpretedGovernanceRelationship):
+                            uninterpreted_relationships.append(result)
+                        else:
+                            normalized_relationships.append(result)
+                if include_relationship_glossary_term_to_data_column:
+                    listed = list_gt_rel(
+                        term_id,
+                        entity_type="DATACOLUMN",
+                        relationship_type="Related",
+                    )
+                    for index, item in enumerate(listed.items):
+                        if not isinstance(item, dict):
+                            raise RemoteStateError(
+                                "remote_state.invalid_shape",
+                                "relationship item must be a JSON object",
+                                path=f"/value/{index}",
+                            )
+                        result = normalize_governance_relationship(
+                            item,
+                            source_type="glossaryTerm",
+                            source_id=term_id,
+                            target_category="DATACOLUMN",
+                        )
+                        if isinstance(result, UninterpretedGovernanceRelationship):
+                            uninterpreted_relationships.append(result)
+                        else:
+                            normalized_relationships.append(result)
+
+        governance_relationships = tuple(normalized_relationships)
+        uninterpreted_governance_relationships = tuple(uninterpreted_relationships)
+
+    if any(
+        (
+            include_data_assets,
+            include_data_columns,
+            include_relationship_data_product_to_data_asset,
+            include_relationship_glossary_term_to_data_asset,
+            include_relationship_glossary_term_to_data_column,
+        )
+    ):
+        read_model_coverage = ReadModelCoverageV3(
+            data_assets=include_data_assets,
+            data_columns=include_data_columns,
+            relationship_data_product_to_data_asset=include_relationship_data_product_to_data_asset,
+            relationship_glossary_term_to_data_asset=include_relationship_glossary_term_to_data_asset,
+            relationship_glossary_term_to_data_column=include_relationship_glossary_term_to_data_column,
+        )
+
     state = build_remote_state_v3(
         tuple(normalized),
         tuple(uninterpreted),
@@ -645,6 +936,13 @@ def capture_unified_catalog_remote_state_v3(
         glossary_terms=glossary_terms,
         uninterpreted_glossary_terms=uninterpreted_glossary_terms,
         captured_resource_types=captured_resource_types,
+        data_assets=data_assets,
+        uninterpreted_data_assets=uninterpreted_data_assets,
+        data_columns=data_columns,
+        uninterpreted_data_columns=uninterpreted_data_columns,
+        governance_relationships=governance_relationships,
+        uninterpreted_governance_relationships=uninterpreted_governance_relationships,
+        read_model_coverage=read_model_coverage,
     )
     try:
         _validate_artifact(state.to_document(), schema=load_remote_state_v3_schema())
