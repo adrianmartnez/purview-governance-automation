@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-remote-state/v3",
+  "title": "purview-remote-state v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "targetContext",
+    "businessDomains",
+    "uninterpretedBusinessDomains",
+    "materialStateIdentity"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-remote-state/v3"
+    },
+    "targetContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "tenantId", "endpoint", "identity"],
+      "properties": {
+        "surface": {
+          "const": "unifiedCatalog"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "businessDomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "properties"],
+        "properties": {
+          "type": {
+            "const": "businessDomain"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "status", "type"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "parentId": {
+                "type": "string",
+                "minLength": 36,
+                "maxLength": 36,
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["DRAFT", "PUBLISHED", "EXPIRED"]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "FunctionalUnit",
+                  "LineOfBusiness",
+                  "DataDomain",
+                  "Regulatory",
+                  "Project"
+                ]
+              },
+              "isRestricted": {
+                "type": "boolean"
+              }
+            }
+          },
+          "unsupportedConfigurableFields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "valueIdentity"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "valueIdentity": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "uninterpretedBusinessDomains": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reasonCode"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "reasonCode": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "materialStateIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

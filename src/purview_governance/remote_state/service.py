@@ -6,6 +6,10 @@ from typing import Any, Protocol
 
 from jsonschema import Draft202012Validator
 
+from purview_governance.config.models_v3 import UNIFIED_CATALOG_SURFACE
+from purview_governance.remote_state.business_domain_normalize import (
+    normalize_business_domain,
+)
 from purview_governance.remote_state.classification_normalize import (
     extract_classification_rule_list_item,
     normalize_custom_classification_rule_get,
@@ -28,6 +32,13 @@ from purview_governance.remote_state.models import (
     build_remote_state,
     build_remote_state_v2,
 )
+from purview_governance.remote_state.models_v3 import (
+    NormalizedBusinessDomain,
+    RemoteStateV3,
+    RemoteTargetContextV3,
+    UninterpretedBusinessDomain,
+    build_remote_state_v3,
+)
 from purview_governance.remote_state.normalize import (
     extract_list_item_name,
     normalize_azure_storage_get,
@@ -48,6 +59,7 @@ from purview_governance.remote_state.scan_policy import (
 from purview_governance.remote_state.schema import (
     load_remote_state_v1_schema,
     load_remote_state_v2_schema,
+    load_remote_state_v3_schema,
 )
 from purview_governance.scanning.client import (
     ClassificationRuleListResult,
@@ -61,6 +73,8 @@ from purview_governance.scanning.names import (
     validate_scan_name,
     validate_scan_ruleset_name,
 )
+from purview_governance.unified_catalog.client import BusinessDomainListResult
+from purview_governance.uuid_utils import require_uuid_string
 
 
 class DataSourceReadClient(Protocol):
@@ -89,6 +103,15 @@ class ScanningReadClient(Protocol):
     def list_scan_rule_sets(self) -> ScanRuleSetListResult: ...
 
     def get_scan_rule_set(self, name: str) -> dict[str, Any]: ...
+
+
+class UnifiedCatalogReadClient(Protocol):
+    """Read-only seam for remote-state/v3 capture (Business Domains enumerate)."""
+
+    @property
+    def target_endpoint(self) -> str: ...
+
+    def enumerate_business_domains(self) -> BusinessDomainListResult: ...
 
 
 def _validate_artifact(document: dict[str, Any], *, schema: dict[str, Any]) -> None:
@@ -453,6 +476,66 @@ def capture_remote_state_v2(client: ScanningReadClient) -> RemoteStateV2:
     )
     try:
         _validate_artifact(state.to_document(), schema=load_remote_state_v2_schema())
+    except RemoteStateError:
+        raise
+    except Exception:
+        raise RemoteStateError(
+            "remote_state.artifact_serialization_failed",
+            "failed to validate remote-state artifact",
+        ) from None
+    return state
+
+
+def capture_unified_catalog_remote_state_v3(
+    client: UnifiedCatalogReadClient,
+    *,
+    tenant_id: str,
+) -> RemoteStateV3:
+    """Capture purview-remote-state/v3 via Business Domains enumerate.
+
+    Read-only: never calls create / update / delete.
+    ``tenant_id`` is declared target binding (not observed from enumerate).
+    """
+    from purview_governance.plan.identity import compute_target_context_identity_v3
+
+    declared_tenant_id = require_uuid_string(tenant_id, field_label="tenantId")
+    endpoint = client.target_endpoint
+    target_identity = compute_target_context_identity_v3(
+        surface=UNIFIED_CATALOG_SURFACE,
+        tenant_id=declared_tenant_id,
+        endpoint=endpoint,
+    )
+    target_context = RemoteTargetContextV3(
+        surface=UNIFIED_CATALOG_SURFACE,
+        tenant_id=declared_tenant_id,
+        endpoint=endpoint,
+        identity=target_identity,
+    )
+
+    listed = client.enumerate_business_domains()
+    normalized: list[NormalizedBusinessDomain] = []
+    uninterpreted: list[UninterpretedBusinessDomain] = []
+
+    for index, item in enumerate(listed.items):
+        if not isinstance(item, dict):
+            raise RemoteStateError(
+                "remote_state.invalid_shape",
+                "enumerate item must be a JSON object",
+                path=f"/value/{index}",
+            )
+        result = normalize_business_domain(item)
+        if isinstance(result, UninterpretedBusinessDomain):
+            uninterpreted.append(result)
+        else:
+            normalized.append(result)
+
+    state = build_remote_state_v3(
+        tuple(normalized),
+        tuple(uninterpreted),
+        target_context,
+    )
+    try:
+        _validate_artifact(state.to_document(), schema=load_remote_state_v3_schema())
     except RemoteStateError:
         raise
     except Exception:

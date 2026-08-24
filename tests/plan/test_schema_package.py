@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from purview_governance.plan import load_plan_v1_schema, load_plan_v2_schema
+from purview_governance.plan import load_plan_v1_schema, load_plan_v2_schema, load_plan_v3_schema
 
 
 def test_plan_schema_packaged() -> None:
@@ -28,3 +28,13 @@ def test_plan_v2_schema_packaged() -> None:
     assert "classificationRule" in type_enum
     op_enum = schema["properties"]["operations"]["items"]["properties"]["type"]["enum"]
     assert "classificationRule" in op_enum
+
+
+def test_plan_v3_schema_packaged() -> None:
+    schema = load_plan_v3_schema()
+    assert schema["$id"].endswith("/purview-governance-plan/v3")
+    assert schema["properties"]["apiVersion"]["const"] == "purview-governance-plan/v3"
+    assert (
+        schema["properties"]["configurationApiVersion"]["const"] == "purview-governance-config/v3"
+    )
+    assert "tenantId" in schema["properties"]["targetContext"]["properties"]

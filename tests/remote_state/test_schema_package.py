@@ -5,6 +5,7 @@ from __future__ import annotations
 from purview_governance.remote_state import (
     load_remote_state_v1_schema,
     load_remote_state_v2_schema,
+    load_remote_state_v3_schema,
 )
 
 
@@ -27,3 +28,11 @@ def test_remote_state_v2_schema_packaged() -> None:
         "classificationRules",
         "uninterpretedClassificationRules",
     }.issubset(required)
+
+
+def test_remote_state_v3_schema_packaged() -> None:
+    schema = load_remote_state_v3_schema()
+    assert schema["$id"].endswith("/purview-remote-state/v3")
+    assert schema["properties"]["apiVersion"]["const"] == "purview-remote-state/v3"
+    assert "targetContext" in schema["required"]
+    assert "businessDomains" in schema["required"]
