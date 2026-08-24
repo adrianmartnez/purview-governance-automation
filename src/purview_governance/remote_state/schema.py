@@ -27,3 +27,14 @@ def load_remote_state_v2_schema() -> dict[str, Any]:
         msg = "remote-state schema must be a JSON object"
         raise TypeError(msg)
     return schema
+
+
+def load_remote_state_v3_schema() -> dict[str, Any]:
+    """Load Draft 2020-12 schema for purview-remote-state/v3 via importlib.resources."""
+    package = resources.files("purview_governance.remote_state.schemas")
+    schema_text = (package / "purview_remote_state_v3.json").read_text(encoding="utf-8")
+    schema = json.loads(schema_text)
+    if not isinstance(schema, dict):
+        msg = "remote-state schema must be a JSON object"
+        raise TypeError(msg)
+    return schema

@@ -1,4 +1,4 @@
-"""Read-only Purview remote-state (purview-remote-state/v1 and /v2)."""
+"""Read-only Purview remote-state (purview-remote-state/v1, /v2, and /v3)."""
 
 from purview_governance.remote_state.canonical import dumps_canonical
 from purview_governance.remote_state.errors import RemoteStateError
@@ -22,21 +22,35 @@ from purview_governance.remote_state.models import (
     build_remote_state,
     build_remote_state_v2,
 )
+from purview_governance.remote_state.models_v3 import (
+    REMOTE_STATE_API_VERSION_V3,
+    NormalizedBusinessDomain,
+    RemoteStateV3,
+    RemoteTargetContextV3,
+    UninterpretedBusinessDomain,
+    build_remote_state_v3,
+    remote_observed_count_v3,
+)
 from purview_governance.remote_state.schema import (
     load_remote_state_v1_schema,
     load_remote_state_v2_schema,
+    load_remote_state_v3_schema,
 )
 from purview_governance.remote_state.service import (
     DataSourceReadClient,
     ScanningReadClient,
+    UnifiedCatalogReadClient,
     capture_remote_state,
     capture_remote_state_v2,
+    capture_unified_catalog_remote_state_v3,
 )
 
 __all__ = [
     "REMOTE_STATE_API_VERSION",
     "REMOTE_STATE_API_VERSION_V2",
+    "REMOTE_STATE_API_VERSION_V3",
     "DataSourceReadClient",
+    "NormalizedBusinessDomain",
     "NormalizedClassificationRule",
     "NormalizedDataSource",
     "NormalizedScan",
@@ -45,8 +59,12 @@ __all__ = [
     "RemoteState",
     "RemoteStateError",
     "RemoteStateV2",
+    "RemoteStateV3",
+    "RemoteTargetContextV3",
     "ScanObservedProperties",
     "ScanningReadClient",
+    "UnifiedCatalogReadClient",
+    "UninterpretedBusinessDomain",
     "UninterpretedClassificationRule",
     "UninterpretedDataSource",
     "UninterpretedScan",
@@ -55,9 +73,13 @@ __all__ = [
     "UnsupportedConfigurableField",
     "build_remote_state",
     "build_remote_state_v2",
+    "build_remote_state_v3",
     "capture_remote_state",
     "capture_remote_state_v2",
+    "capture_unified_catalog_remote_state_v3",
     "dumps_canonical",
     "load_remote_state_v1_schema",
     "load_remote_state_v2_schema",
+    "load_remote_state_v3_schema",
+    "remote_observed_count_v3",
 ]

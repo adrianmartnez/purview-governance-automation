@@ -102,14 +102,18 @@ jobs:
           test -f "$ROOT/src/purview_governance/__main__.py"
           test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v1.json"
           test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v2.json"
+          test -f "$ROOT/src/purview_governance/config/schemas/purview_governance_config_v3.json"
           test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v1.json"
           test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v2.json"
+          test -f "$ROOT/src/purview_governance/remote_state/schemas/purview_remote_state_v3.json"
           test -f "$ROOT/src/purview_governance/plan/schemas/purview_governance_plan_v1.json"
           test -f "$ROOT/src/purview_governance/plan/schemas/purview_governance_plan_v2.json"
+          test -f "$ROOT/src/purview_governance/plan/schemas/purview_governance_plan_v3.json"
           test -f "$ROOT/src/purview_governance/apply/schemas/purview_execution_result_v1.json"
           test -f "$ROOT/src/purview_governance/apply/schemas/purview_execution_result_v2.json"
           test -f "$ROOT/examples/fictional-governance-config.yaml"
           test -f "$ROOT/examples/fictional-governance-config-v2.yaml"
+          test -f "$ROOT/examples/fictional-governance-config-v3.yaml"
 
           python -m venv "$RUNNER_TEMP/venv-wheel"
           # shellcheck disable=SC1091
@@ -126,6 +130,9 @@ jobs:
             python -c "from purview_governance.apply import load_execution_result_v2_schema, ExecutionMode, load_execution_result_text, build_execution_result_v2_from_parts, OperationResultV2; s=load_execution_result_v2_schema(); assert s['\$id'].endswith('/purview-execution-result/v2'), s.get('\$id'); h='sha256:'+('c'*64); ops=(OperationResultV2(sequence=1, resource_type='scan', name='DailyScan', action='create', status='not-run', data_source_name='ds-a'), OperationResultV2(sequence=2, resource_type='scan', name='DailyScan', action='create', status='not-run', data_source_name='ds-b')); r=build_execution_result_v2_from_parts(plan_identity=h, planned_target_context_identity=h, execution_target_context_identity=h, planned_remote_state_identity=h, observed_remote_state_identity=h, mode=ExecutionMode.DRY_RUN, status='dry-run-ready', writes_performed=0, writes_attempted=0, writes_unknown=0, operations=ops, failure=None); canonical=r.to_canonical_json(); loaded=load_execution_result_text(canonical); assert loaded.to_canonical_json()==canonical; assert loaded.api_version.endswith('/v2'); assert {(o.data_source_name, o.name) for o in loaded.operations}=={('ds-a','DailyScan'),('ds-b','DailyScan')}; print('apply-v2-ok', s['\$id'], r.result_identity)"
             python -c "import httpx; from purview_governance.scanning import PurviewScanningClient, SCANNING_API_VERSION; assert SCANNING_API_VERSION == '2023-09-01'; print('scanning-ok', PurviewScanningClient.__name__, httpx.__version__)"
             python -c "from purview_governance.unified_catalog import PurviewUnifiedCatalogClient, UNIFIED_CATALOG_API_VERSION, UNIFIED_CATALOG_PRODUCTION_ENDPOINT; assert UNIFIED_CATALOG_API_VERSION == '2026-03-20-preview'; assert UNIFIED_CATALOG_PRODUCTION_ENDPOINT == 'https://api.purview-service.microsoft.com'; print('unified-catalog-ok', PurviewUnifiedCatalogClient.__name__)"
+            python -c "from purview_governance.config.schema import load_v3_schema; s=load_v3_schema(); assert s['\$id'].endswith('/purview-governance-config/v3'); print('config-v3-ok', s['\$id'])"
+            python -c "from purview_governance.remote_state import load_remote_state_v3_schema; s=load_remote_state_v3_schema(); assert s['\$id'].endswith('/purview-remote-state/v3'); print('remote-v3-ok', s['\$id'])"
+            python -c "from purview_governance.plan import load_plan_v3_schema; s=load_plan_v3_schema(); assert s['\$id'].endswith('/purview-governance-plan/v3'); print('plan-v3-ok', s['\$id'])"
           )
           deactivate
 

@@ -33,8 +33,8 @@ def fictional_business_domain_item(
     return {
         "id": domain_id,
         "name": name,
-        "status": "Active",
-        "type": "Business",
+        "status": "PUBLISHED",
+        "type": "FunctionalUnit",
         "systemData": {
             "createdAt": "1970-01-01T00:00:00.000Z",
             "createdBy": "00000000-0000-0000-0000-000000000001",

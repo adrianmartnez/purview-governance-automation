@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from purview_governance.config.schema import load_v1_schema
+from purview_governance.config.schema import load_v1_schema, load_v3_schema
 from purview_governance.config.service import validate_config_file
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +19,16 @@ def test_load_v1_schema_from_package_resources() -> None:
     assert (
         schema["$id"]
         == "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-config/v1"
+    )
+    Draft202012Validator.check_schema(schema)
+
+
+def test_load_v3_schema_from_package_resources() -> None:
+    schema = load_v3_schema()
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert (
+        schema["$id"]
+        == "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-config/v3"
     )
     Draft202012Validator.check_schema(schema)
 

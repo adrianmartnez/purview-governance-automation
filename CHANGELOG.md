@@ -13,6 +13,19 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Added
 
+- Business Domains declarative modeling via contract **v3**:
+  `purview-governance-config/v3`, `purview-remote-state/v3`,
+  `purview-governance-plan/v3` (planning-only; no apply).
+- Unified Catalog target binding with declared `target.tenantId` and
+  `compute_target_context_identity_v3` (separate from frozen v1/v2 Scanning
+  target identity).
+- Deterministic diff/plan for Business Domains: parentId root ownership,
+  description v2-semantics, explicit `isRestricted` ownership,
+  `UnsupportedConfigurableField` safety for deferred configurables,
+  hierarchy limits (depth 5, count 200 including uninterpreted remotes),
+  name-conflict CREATE blocking.
+- Example `examples/fictional-governance-config-v3.yaml` and offline UC contract
+  tests extended for Business Domains v3 capture/plan.
 - `unified_catalog` package with `PurviewUnifiedCatalogClient`, fail-closed
   production endpoint policy (`https://api.purview-service.microsoft.com`),
   Public Preview API `2026-03-20-preview`, compatibility metadata, and
@@ -30,6 +43,11 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Safety
 
+- Unified Catalog Business Domains v3 is **planning-only**; no REST writes, no
+  apply, no CLI UC workflow. `executionEligibility: ready` indicates absence of
+  known v3 blockers — not Microsoft execution guarantee. Declared `tenantId` is
+  not live-verified against credentials in PR2. REPLACE blocked when deferred
+  configurables would be clobbered.
 - Unified Catalog client secret-sentinel coverage; bearer tokens are not
   persisted; Authorization is excluded from sanitized errors and contract
   recordings.

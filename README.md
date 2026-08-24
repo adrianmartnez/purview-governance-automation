@@ -56,10 +56,19 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
   `{account}.purview.azure.com` / API `2023-09-01`)
 - `PurviewUnifiedCatalogClient` with read-only `enumerate_business_domains()`
   contract proof (PagedDomain pagination)
+- **Business Domains** declarative config/remote/diff/plan via contract **v3**
+  (`purview-governance-config/v3`, `purview-remote-state/v3`,
+  `purview-governance-plan/v3`) — **planning-only**; no Unified Catalog apply in
+  PR2
+- config v3 requires declared `target.tenantId` (UUID); production endpoint is
+  derived — **not** live-verified against credentials in PR2
+- `executionEligibility: ready` means no known v3 blockers — **not** a guarantee
+  of successful Microsoft execution (PR6 closes tenant binding and REST payload)
 - compatibility metadata (`surface=unified-catalog`, runtime API version pinned)
 - offline loopback contract tests for Unified Catalog (separate from Scanning
   contract server)
-- **not** full Business Domains / Data Products / Terms as Code yet
+- example: `examples/fictional-governance-config-v3.yaml`
+- **not** Data Products / Glossary Terms as Code yet
 - **not** live-tenant validation; contract-tested offline ≠ production Purview
   validation
 
@@ -78,6 +87,7 @@ substitute for production validation against Microsoft Purview.
 - Scan / SRS / Classification Rule kinds beyond the supported AzureStorage /
   Custom / AzureStorageMsi slice
 - Unified Catalog desired-state / diff / plan / apply (beyond PR1 foundation)
+- Unified Catalog apply, CLI workflow, execution-result/v3
 - Unified Catalog CLI commands
 - automatic deletes
 - automatic retries
@@ -247,11 +257,14 @@ Fictional sample configs:
 
 - `examples/fictional-governance-config.yaml` (config/v1)
 - `examples/fictional-governance-config-v2.yaml` (config/v2 multi-resource)
+- `examples/fictional-governance-config-v3.yaml` (config/v3 Unified Catalog Business Domains)
 
 ```powershell
 purview-governance config validate examples/fictional-governance-config.yaml
 purview-governance config validate examples/fictional-governance-config-v2.yaml
 ```
+
+Config v3 validates via library API (`validate_config_v3_file`) — no CLI UC workflow yet.
 
 ## Repository structure
 
@@ -260,7 +273,7 @@ src/purview_governance/
   auth/ config/ desired/ diff/ plan/ remote_state/ scanning/ unified_catalog/ apply/
   cli.py
 examples/
-tests/   # unit, api_contract, cli offline workflows (v1 + v2)
+tests/   # unit, api_contract, cli offline workflows (v1 + v2); v3 library tests
 .github/workflows/ci.yml
 CHANGELOG.md
 ```

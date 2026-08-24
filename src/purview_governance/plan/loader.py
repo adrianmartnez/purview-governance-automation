@@ -12,7 +12,11 @@ from purview_governance.plan.errors import (
     PlanSchemaError,
     PlanVersionError,
 )
-from purview_governance.plan.identity import PLAN_API_VERSION, PLAN_API_VERSION_V2
+from purview_governance.plan.identity import (
+    PLAN_API_VERSION,
+    PLAN_API_VERSION_V2,
+    PLAN_API_VERSION_V3,
+)
 from purview_governance.plan.models import (
     GovernancePlan,
     PlanIdentities,
@@ -22,9 +26,23 @@ from purview_governance.plan.models import (
     operations_from_document,
     summary_from_document,
 )
+from purview_governance.plan.models_v3 import (
+    GovernancePlanV3,
+    PlanTargetContextV3,
+    change_set_v3_from_document,
+    desired_state_v3_from_document,
+    operations_v3_from_document,
+)
+from purview_governance.plan.models_v3 import (
+    summary_from_document as summary_v3_from_document,
+)
 from purview_governance.plan.validation import (
     validate_plan_document_schema,
     validate_plan_document_semantics,
+)
+from purview_governance.plan.validation_v3 import (
+    validate_plan_document_schema_v3,
+    validate_plan_document_semantics_v3,
 )
 
 
@@ -165,3 +183,97 @@ def load_plan_file(path: str | Path) -> GovernancePlan:
     if read_failed:
         raise PlanLoadError("plan.invalid_syntax", "plan file could not be read")
     return load_plan_text(text)
+
+
+def _governance_plan_v3_from_validated_document(document: dict[str, Any]) -> GovernancePlanV3:
+    target = document["targetContext"]
+    identities = document["identities"]
+
+    return GovernancePlanV3(
+        api_version=document["apiVersion"],
+        configuration_api_version=document["configurationApiVersion"],
+        target_context=PlanTargetContextV3(
+            surface=target["surface"],
+            tenant_id=target["tenantId"],
+            endpoint=target["endpoint"],
+            identity=target["identity"],
+        ),
+        identities=PlanIdentities(
+            material_configuration=identities["materialConfiguration"],
+            desired_state=identities["desiredState"],
+            remote_state=identities["remoteState"],
+        ),
+        desired_state=desired_state_v3_from_document(document["desiredState"]),
+        change_set=change_set_v3_from_document(document["changeSet"]),
+        execution_eligibility=document["executionEligibility"],
+        operations=operations_v3_from_document(document["operations"]),
+        summary=summary_v3_from_document(document["summary"]),
+        plan_identity=document["planIdentity"],
+    )
+
+
+def load_plan_v3_text(text: str) -> GovernancePlanV3:
+    """Load and strictly validate a purview-governance-plan/v3 JSON artifact."""
+    document = _parse_plan_json(text)
+
+    api_version = document.get("apiVersion")
+    if api_version != PLAN_API_VERSION_V3:
+        raise PlanVersionError(
+            "plan.unsupported_version",
+            "unsupported or missing plan apiVersion for v3 loader",
+            path="/apiVersion",
+        )
+
+    schema_failed = False
+    try:
+        validate_plan_document_schema_v3(document)
+    except PlanSchemaError:
+        schema_failed = True
+    except Exception:
+        schema_failed = True
+    if schema_failed:
+        raise PlanSchemaError("plan.invalid_schema", "plan document failed schema validation")
+
+    integrity_failed = False
+    integrity_error: PlanIntegrityError | None = None
+    try:
+        validate_plan_document_semantics_v3(document)
+    except PlanIntegrityError as exc:
+        integrity_failed = True
+        integrity_error = PlanIntegrityError(exc.code, exc.message, path=exc.path)
+    except Exception:
+        integrity_failed = True
+        integrity_error = PlanIntegrityError(
+            "plan.identity_mismatch",
+            "plan document failed semantic integrity validation",
+        )
+    if integrity_failed:
+        assert integrity_error is not None
+        raise integrity_error
+
+    model_failed = False
+    plan: GovernancePlanV3 | None = None
+    try:
+        plan = _governance_plan_v3_from_validated_document(document)
+    except Exception:
+        model_failed = True
+    if model_failed or plan is None:
+        raise PlanIntegrityError(
+            "plan.invalid_schema",
+            "plan document could not be materialized",
+        )
+    return plan
+
+
+def load_plan_v3_file(path: str | Path) -> GovernancePlanV3:
+    """Load a plan/v3 artifact from a UTF-8 JSON file."""
+    file_path = Path(path)
+    read_failed = False
+    text = ""
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except OSError:
+        read_failed = True
+    if read_failed:
+        raise PlanLoadError("plan.invalid_syntax", "plan file could not be read")
+    return load_plan_v3_text(text)

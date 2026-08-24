@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-governance-plan/v3",
+  "title": "purview-governance-plan v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "configurationApiVersion",
+    "targetContext",
+    "identities",
+    "desiredState",
+    "changeSet",
+    "executionEligibility",
+    "operations",
+    "summary",
+    "planIdentity"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-governance-plan/v3"
+    },
+    "configurationApiVersion": {
+      "const": "purview-governance-config/v3"
+    },
+    "targetContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "tenantId", "endpoint", "identity"],
+      "properties": {
+        "surface": {
+          "const": "unifiedCatalog"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "identity": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desiredState", "materialConfiguration", "remoteState"],
+      "properties": {
+        "desiredState": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "materialConfiguration": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "remoteState": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "desiredState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["businessDomains"],
+      "properties": {
+        "businessDomains": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "properties"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 36,
+                "maxLength": 36,
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "properties": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "status", "type"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "parentId": {
+                    "type": "string",
+                    "minLength": 36,
+                    "maxLength": 36,
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["DRAFT", "PUBLISHED", "EXPIRED"]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "FunctionalUnit",
+                      "LineOfBusiness",
+                      "DataDomain",
+                      "Regulatory",
+                      "Project"
+                    ]
+                  },
+                  "isRestricted": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "changeSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "outcome", "reasons"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 36,
+                "maxLength": 36,
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "type": {
+                "const": "businessDomain"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": ["create", "replace", "no-op", "remote-only", "blocked"]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["code", "path"],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "before": {
+                      "type": "string"
+                    },
+                    "after": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "executionEligibility": {
+      "type": "string",
+      "enum": ["ready", "blocked"]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "type", "id", "action"],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "const": "businessDomain"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "replace"]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "create",
+        "replace",
+        "noOp",
+        "remoteOnly",
+        "blocked",
+        "operations"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "create": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "replace": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "noOp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remoteOnly": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "operations": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "planIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

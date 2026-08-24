@@ -1,0 +1,24 @@
+# Fictional sample — not a live Microsoft Purview tenant.
+# Example only: validates against purview-governance-config/v3.
+# Unified Catalog Business Domains (planning-only; no apply in v1.2 PR2).
+apiVersion: purview-governance-config/v3
+target:
+  surface: unifiedCatalog
+  tenantId: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+authentication:
+  strategy: defaultAzureCredential
+resources:
+  - type: businessDomain
+    id: 7e74f902-62f5-49f4-8258-92ed2b8537ba
+    properties:
+      name: fictional-sales-domain
+      description: Fictional sales governance domain
+      status: PUBLISHED
+      type: FunctionalUnit
+  - type: businessDomain
+    id: 8e74f902-62f5-49f4-8258-92ed2b8537bb
+    properties:
+      name: fictional-finance-domain
+      parentId: 7e74f902-62f5-49f4-8258-92ed2b8537ba
+      status: PUBLISHED
+      type: FunctionalUnit

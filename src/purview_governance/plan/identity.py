@@ -10,12 +10,15 @@ from purview_governance.remote_state.canonical import dumps_canonical
 
 PLAN_API_VERSION = "purview-governance-plan/v1"
 PLAN_API_VERSION_V2 = "purview-governance-plan/v2"
+PLAN_API_VERSION_V3 = "purview-governance-plan/v3"
 CONFIGURATION_API_VERSION = "purview-governance-config/v1"
 CONFIGURATION_API_VERSION_V2 = "purview-governance-config/v2"
+CONFIGURATION_API_VERSION_V3 = "purview-governance-config/v3"
 
 HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 TARGET_CONTEXT_IDENTITY_TYPE = "purview-target-context/v1"
+TARGET_CONTEXT_IDENTITY_TYPE_V3 = "purview-target-context/v3"
 DESIRED_STATE_IDENTITY_TYPE = "purview-desired-state/v1"
 MATERIAL_CONFIGURATION_IDENTITY_TYPE = "purview-material-configuration/v1"
 
@@ -35,6 +38,23 @@ def compute_target_context_identity(endpoint: str) -> str:
     return compute_domain_identity(
         {
             "identityType": TARGET_CONTEXT_IDENTITY_TYPE,
+            "endpoint": endpoint,
+        }
+    )
+
+
+def compute_target_context_identity_v3(
+    *,
+    surface: str,
+    tenant_id: str,
+    endpoint: str,
+) -> str:
+    """Return ``sha256:<hex>`` for Unified Catalog target binding (plan/v3)."""
+    return compute_domain_identity(
+        {
+            "identityType": TARGET_CONTEXT_IDENTITY_TYPE_V3,
+            "surface": surface,
+            "tenantId": tenant_id,
             "endpoint": endpoint,
         }
     )

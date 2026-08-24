@@ -9,6 +9,7 @@ from typing import Any
 _SCHEMA_PACKAGE = "purview_governance.config.schemas"
 _SCHEMA_V1_FILENAME = "purview_governance_config_v1.json"
 _SCHEMA_V2_FILENAME = "purview_governance_config_v2.json"
+_SCHEMA_V3_FILENAME = "purview_governance_config_v3.json"
 
 
 def _load_schema(filename: str) -> dict[str, Any]:
@@ -28,3 +29,8 @@ def load_v1_schema() -> dict[str, Any]:
 def load_v2_schema() -> dict[str, Any]:
     """Load the packaged Draft 2020-12 schema for contract v2."""
     return _load_schema(_SCHEMA_V2_FILENAME)
+
+
+def load_v3_schema() -> dict[str, Any]:
+    """Load the packaged Draft 2020-12 schema for contract v3."""
+    return _load_schema(_SCHEMA_V3_FILENAME)
