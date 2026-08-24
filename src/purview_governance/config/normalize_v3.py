@@ -12,13 +12,38 @@ from purview_governance.config.diagnostics import (
 from purview_governance.config.models import AuthenticationConfig
 from purview_governance.config.models_v3 import (
     CONFIG_API_VERSION_V3,
+    DATA_PRODUCT_TYPES,
     UNIFIED_CATALOG_SURFACE,
+    AudienceType,
     BusinessDomainResourceConfig,
+    DataProductOwnerConfig,
+    DataProductResourceConfig,
     GovernanceConfigV3,
+    ResourceConfigV3,
     TargetConfigV3,
-    business_domain_resource_sort_key,
+    UpdateFrequencyType,
+    resource_sort_key,
 )
 from purview_governance.uuid_utils import normalize_uuid_string
+
+_AUDIENCE_VALUES = {
+    "DataEngineer",
+    "BIEngineer",
+    "DataAnalyst",
+    "DataScientist",
+    "BusinessAnalyst",
+    "SoftwareEngineer",
+    "BusinessUser",
+    "Executive",
+}
+_UPDATE_FREQUENCY_VALUES = {
+    "Hourly",
+    "Daily",
+    "Weekly",
+    "Monthly",
+    "Quarterly",
+    "Yearly",
+}
 
 
 def _require_uuid(
@@ -159,7 +184,251 @@ def _normalize_business_domain_resource(
     )
 
 
-def _normalize_resource(raw: object, *, index: int) -> BusinessDomainResourceConfig:
+def _normalize_owners(
+    raw_owners: object,
+    *,
+    path_base: tuple[object, ...],
+) -> tuple[DataProductOwnerConfig, ...]:
+    if not isinstance(raw_owners, list) or not raw_owners:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "owners"),
+                    message="owners must be a non-empty array",
+                ),
+            )
+        )
+    owners: list[DataProductOwnerConfig] = []
+    seen: set[str] = set()
+    for owner_index, entry in enumerate(raw_owners):
+        if not isinstance(entry, dict):
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "owners", owner_index),
+                        message="owner must be an object",
+                    ),
+                )
+            )
+        owner_id = _require_uuid(
+            entry.get("id"),
+            path=(*path_base, "owners", owner_index, "id"),
+            field_label="owner id",
+        )
+        if owner_id in seen:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "owners", owner_index, "id"),
+                        message=f"duplicate owner id {owner_id!r}",
+                    ),
+                )
+            )
+        seen.add(owner_id)
+        description: str | None = None
+        if "description" in entry:
+            desc = entry["description"]
+            if not isinstance(desc, str):
+                raise ConfigValidationError(
+                    (
+                        ConfigDiagnostic(
+                            code="config.invalid_syntax",
+                            path=json_pointer(*path_base, "owners", owner_index, "description"),
+                            message="owner description must be a string",
+                        ),
+                    )
+                )
+            description = desc
+        owners.append(DataProductOwnerConfig(id=owner_id, description=description))
+    owners.sort(key=lambda item: item.id)
+    return tuple(owners)
+
+
+def _normalize_audience(
+    raw_audience: object,
+    *,
+    path_base: tuple[object, ...],
+) -> tuple[AudienceType, ...]:
+    if not isinstance(raw_audience, list):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "audience"),
+                    message="audience must be an array",
+                ),
+            )
+        )
+    seen: set[str] = set()
+    values: list[str] = []
+    for index, entry in enumerate(raw_audience):
+        if not isinstance(entry, str) or entry not in _AUDIENCE_VALUES:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "audience", index),
+                        message="audience entry is not a supported enum value",
+                    ),
+                )
+            )
+        if entry in seen:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "audience", index),
+                        message=f"duplicate audience value {entry!r}",
+                    ),
+                )
+            )
+        seen.add(entry)
+        values.append(entry)
+    return tuple(sorted(values))  # type: ignore[return-value]
+
+
+def _normalize_data_product_resource(
+    raw: dict[str, Any],
+    *,
+    index: int,
+) -> DataProductResourceConfig:
+    path_base = ("resources", index)
+    resource_id = _require_uuid(
+        raw.get("id"),
+        path=(*path_base, "id"),
+        field_label="Data Product id",
+    )
+
+    props = raw.get("properties")
+    if not isinstance(props, dict):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties"),
+                    message="properties must be an object",
+                ),
+            )
+        )
+
+    name = props.get("name")
+    if not isinstance(name, str) or not name:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "name"),
+                    message="name must be a non-empty string",
+                ),
+            )
+        )
+
+    domain = _require_uuid(
+        props.get("domain"),
+        path=(*path_base, "properties", "domain"),
+        field_label="domain",
+    )
+
+    product_type = props.get("type")
+    if not isinstance(product_type, str) or product_type not in DATA_PRODUCT_TYPES:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "type"),
+                    message="type must be a supported Data Product type",
+                ),
+            )
+        )
+
+    description = props.get("description")
+    if not isinstance(description, str) or not description:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "description"),
+                    message="description must be a non-empty string",
+                ),
+            )
+        )
+    if len(description) > 10_000:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "description"),
+                    message="description must not exceed 10000 characters",
+                ),
+            )
+        )
+
+    business_use = props.get("businessUse")
+    if not isinstance(business_use, str) or not business_use:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "businessUse"),
+                    message="businessUse must be a non-empty string",
+                ),
+            )
+        )
+
+    owners = _normalize_owners(props.get("owners"), path_base=(*path_base, "properties"))
+
+    audience: tuple[AudienceType, ...] | None = None
+    if "audience" in props:
+        audience = _normalize_audience(props["audience"], path_base=(*path_base, "properties"))
+
+    update_frequency: UpdateFrequencyType | None = None
+    if "updateFrequency" in props:
+        freq = props["updateFrequency"]
+        if not isinstance(freq, str) or freq not in _UPDATE_FREQUENCY_VALUES:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "properties", "updateFrequency"),
+                        message="updateFrequency is not a supported enum value",
+                    ),
+                )
+            )
+        update_frequency = freq  # type: ignore[assignment]
+
+    endorsed: bool | None = None
+    if "endorsed" in props:
+        raw_endorsed = props["endorsed"]
+        if not isinstance(raw_endorsed, bool):
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "properties", "endorsed"),
+                        message="endorsed must be a boolean",
+                    ),
+                )
+            )
+        endorsed = raw_endorsed
+
+    return DataProductResourceConfig(
+        id=resource_id,
+        name=name,
+        domain=domain,
+        product_type=product_type,  # type: ignore[arg-type]
+        description=description,
+        business_use=business_use,
+        owners=owners,
+        audience=audience,
+        update_frequency=update_frequency,
+        endorsed=endorsed,
+    )
+
+
+def _normalize_resource(raw: object, *, index: int) -> ResourceConfigV3:
     path_base = ("resources", index)
     if not isinstance(raw, dict):
         raise ConfigValidationError(
@@ -172,17 +441,19 @@ def _normalize_resource(raw: object, *, index: int) -> BusinessDomainResourceCon
             )
         )
     resource_type = raw.get("type")
-    if resource_type != "businessDomain":
-        raise ConfigValidationError(
-            (
-                ConfigDiagnostic(
-                    code="config.unknown_field",
-                    path=json_pointer(*path_base, "type"),
-                    message="unsupported resource type",
-                ),
-            )
+    if resource_type == "businessDomain":
+        return _normalize_business_domain_resource(raw, index=index)
+    if resource_type == "dataProduct":
+        return _normalize_data_product_resource(raw, index=index)
+    raise ConfigValidationError(
+        (
+            ConfigDiagnostic(
+                code="config.unknown_field",
+                path=json_pointer(*path_base, "type"),
+                message="unsupported resource type",
+            ),
         )
-    return _normalize_business_domain_resource(raw, index=index)
+    )
 
 
 def normalize_document_v3(document: dict[str, Any]) -> GovernanceConfigV3:
@@ -233,7 +504,7 @@ def normalize_document_v3(document: dict[str, Any]) -> GovernanceConfigV3:
     resources = tuple(
         _normalize_resource(item, index=index) for index, item in enumerate(raw_resources)
     )
-    resources = tuple(sorted(resources, key=business_domain_resource_sort_key))
+    resources = tuple(sorted(resources, key=resource_sort_key))
 
     return GovernanceConfigV3(
         api_version=CONFIG_API_VERSION_V3,

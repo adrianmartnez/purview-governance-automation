@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Union
 from purview_governance.remote_state.canonical import dumps_canonical
 
 if TYPE_CHECKING:
-    from purview_governance.diff.models_v3 import DiffBusinessDomainItem
+    from purview_governance.diff.models_v3 import DiffBusinessDomainItem, DiffDataProductItem
 
 DiffOutcome = Literal["create", "replace", "no-op", "remote-only", "blocked"]
 DiffResourceType = Literal[
@@ -19,7 +19,7 @@ DiffResourceType = Literal[
     "businessDomain",
 ]
 
-DiffChangeItem = Union["DiffItem", "DiffBusinessDomainItem"]
+DiffChangeItem = Union["DiffItem", "DiffBusinessDomainItem", "DiffDataProductItem"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,8 +79,8 @@ class DiffDocument:
 
 
 def _change_item_document(item: DiffChangeItem) -> dict[str, Any]:
-    from purview_governance.diff.models_v3 import DiffBusinessDomainItem
+    from purview_governance.diff.models_v3 import DiffBusinessDomainItem, DiffDataProductItem
 
-    if isinstance(item, DiffBusinessDomainItem):
+    if isinstance(item, (DiffBusinessDomainItem, DiffDataProductItem)):
         return item.to_document()
     return item.to_document()

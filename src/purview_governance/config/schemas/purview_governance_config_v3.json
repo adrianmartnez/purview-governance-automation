@@ -38,57 +38,132 @@
     "resources": {
       "type": "array",
       "minItems": 0,
-      "maxItems": 200,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["type", "id", "properties"],
+        "oneOf": [
+          { "$ref": "#/$defs/businessDomainResource" },
+          { "$ref": "#/$defs/dataProductResource" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "businessDomainResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "properties"],
+      "properties": {
+        "type": { "const": "businessDomain" },
+        "id": { "$ref": "#/$defs/uuid" },
         "properties": {
-          "type": {
-            "const": "businessDomain"
-          },
-          "id": {
-            "type": "string",
-            "minLength": 36,
-            "maxLength": 36,
-            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-          },
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "status", "type"],
           "properties": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["name", "status", "type"],
-            "properties": {
-              "name": {
-                "type": "string",
-                "minLength": 1
-              },
-              "description": {
-                "type": "string"
-              },
-              "parentId": {
-                "type": "string",
-                "minLength": 36,
-                "maxLength": 36,
-                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-              },
-              "status": {
-                "type": "string",
-                "enum": ["DRAFT", "PUBLISHED", "EXPIRED"]
-              },
-              "type": {
+            "name": { "type": "string", "minLength": 1 },
+            "description": { "type": "string" },
+            "parentId": { "$ref": "#/$defs/uuid" },
+            "status": {
+              "type": "string",
+              "enum": ["DRAFT", "PUBLISHED", "EXPIRED"]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "FunctionalUnit",
+                "LineOfBusiness",
+                "DataDomain",
+                "Regulatory",
+                "Project"
+              ]
+            },
+            "isRestricted": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "dataProductOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "description": { "type": "string" }
+      }
+    },
+    "dataProductResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "properties"],
+      "properties": {
+        "type": { "const": "dataProduct" },
+        "id": { "$ref": "#/$defs/uuid" },
+        "properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "domain", "type", "description", "businessUse", "owners"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "domain": { "$ref": "#/$defs/uuid" },
+            "type": {
+              "type": "string",
+              "enum": [
+                "Master",
+                "Reference",
+                "Analytical",
+                "AI",
+                "MasterDataAndReferenceData",
+                "BusinessSystemOrApplication",
+                "ModelTypes",
+                "DashboardsOrReports",
+                "Operational",
+                "MLAITrainingDataSet",
+                "MLAITestingDataSet",
+                "TransactionalDataset",
+                "AnalyticsModel",
+                "SemanticModel"
+              ]
+            },
+            "description": { "type": "string", "minLength": 1, "maxLength": 10000 },
+            "businessUse": { "type": "string", "minLength": 1 },
+            "owners": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/dataProductOwner" }
+            },
+            "audience": {
+              "type": "array",
+              "items": {
                 "type": "string",
                 "enum": [
-                  "FunctionalUnit",
-                  "LineOfBusiness",
-                  "DataDomain",
-                  "Regulatory",
-                  "Project"
+                  "DataEngineer",
+                  "BIEngineer",
+                  "DataAnalyst",
+                  "DataScientist",
+                  "BusinessAnalyst",
+                  "SoftwareEngineer",
+                  "BusinessUser",
+                  "Executive"
                 ]
-              },
-              "isRestricted": {
-                "type": "boolean"
               }
-            }
+            },
+            "updateFrequency": {
+              "type": "string",
+              "enum": [
+                "Hourly",
+                "Daily",
+                "Weekly",
+                "Monthly",
+                "Quarterly",
+                "Yearly"
+              ]
+            },
+            "endorsed": { "type": "boolean" }
           }
         }
       }

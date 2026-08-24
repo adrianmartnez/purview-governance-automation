@@ -13,6 +13,7 @@ import httpx
 from purview_governance.auth.provider import PurviewAuthorizationProvider
 from purview_governance.unified_catalog.constants import (
     BUSINESS_DOMAINS_PATH,
+    DATA_PRODUCTS_PATH,
     DEFAULT_TIMEOUT,
     MAX_LIST_PAGES,
     UNIFIED_CATALOG_API_VERSION,
@@ -37,6 +38,17 @@ from purview_governance.unified_catalog.origin import (
 @dataclass(frozen=True, slots=True)
 class BusinessDomainListResult:
     """Aggregated Business Domain enumerate snapshot (defensive copies of ``value`` items)."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class DataProductListResult:
+    """Aggregated Data Product enumerate snapshot (defensive copies of ``value`` items)."""
 
     items: tuple[dict[str, Any], ...]
 
@@ -96,6 +108,41 @@ def _validate_paged_domain_page(data: dict[str, Any]) -> tuple[list[dict[str, An
             raise UnifiedCatalogResponseError(
                 "unified_catalog.invalid_response_contract",
                 "PagedDomain nextLink must be a non-empty string when present",
+            )
+        next_link = raw.strip()
+    return items, next_link
+
+
+def _validate_paged_data_product_page(
+    data: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    if "value" not in data:
+        raise UnifiedCatalogResponseError(
+            "unified_catalog.invalid_response_contract",
+            "PagedDataProduct response must include a value array",
+        )
+    value = data["value"]
+    if not isinstance(value, list):
+        raise UnifiedCatalogResponseError(
+            "unified_catalog.invalid_response_contract",
+            "PagedDataProduct value must be an array",
+        )
+    items: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_response_contract",
+                "PagedDataProduct value entries must be JSON objects",
+            )
+        items.append(_defensive_snapshot(entry))
+
+    next_link: str | None = None
+    if "nextLink" in data and data["nextLink"] is not None:
+        raw = data["nextLink"]
+        if not isinstance(raw, str) or not raw.strip():
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_response_contract",
+                "PagedDataProduct nextLink must be a non-empty string when present",
             )
         next_link = raw.strip()
     return items, next_link
@@ -205,6 +252,10 @@ class PurviewUnifiedCatalogClient:
         query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
         return f"{self._base_url}{BUSINESS_DOMAINS_PATH}?{query}"
 
+    def _data_products_url(self) -> str:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        return f"{self._base_url}{DATA_PRODUCTS_PATH}?{query}"
+
     def _safe_path(self, url: str) -> str:
         parts = urlsplit(url)
         return parts.path or "/"
@@ -310,3 +361,55 @@ class PurviewUnifiedCatalogClient:
     def enumerate_business_domains(self) -> BusinessDomainListResult:
         """Enumerate Business Domains (PagedDomain), following same-origin ``nextLink`` values."""
         return BusinessDomainListResult(items=self._enumerate_business_domains_paginated())
+
+    def _enumerate_data_products_paginated(self) -> tuple[dict[str, Any], ...]:
+        url = self._data_products_url()
+        aggregated: list[dict[str, Any]] = []
+        seen_links: set[str] = set()
+        pages = 0
+
+        while True:
+            pages += 1
+            if pages > MAX_LIST_PAGES:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_limit_exceeded",
+                    "data product pagination exceeded the maximum number of pages",
+                )
+
+            headers = {
+                "Authorization": self._authorization_header(),
+                "Accept": "application/json",
+            }
+            response = self._send(
+                "GET",
+                url,
+                operation="enumerate_data_products",
+                headers=headers,
+            )
+            if response.status_code != 200:
+                self._raise_http_error(
+                    response,
+                    operation="enumerate_data_products",
+                    method="GET",
+                    url=url,
+                )
+
+            data = _parse_json_object(response, operation="enumerate_data_products")
+            items, next_link = _validate_paged_data_product_page(data)
+            aggregated.extend(items)
+
+            if next_link is None:
+                break
+            if next_link in seen_links:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_loop",
+                    "data product pagination encountered a repeated nextLink",
+                )
+            seen_links.add(next_link)
+            url = validate_absolute_same_origin_next_link(next_link, self._origin)
+
+        return tuple(aggregated)
+
+    def enumerate_data_products(self) -> DataProductListResult:
+        """Enumerate Data Products (PagedDataProduct), following same-origin ``nextLink`` values."""
+        return DataProductListResult(items=self._enumerate_data_products_paginated())

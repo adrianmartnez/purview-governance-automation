@@ -193,11 +193,28 @@ def _tenant_id_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     return []
 
 
+def _business_domain_resources(resources: list[Any]) -> list[tuple[int, dict[str, Any]]]:
+    items: list[tuple[int, dict[str, Any]]] = []
+    for index, item in enumerate(resources):
+        if isinstance(item, dict) and item.get("type") == "businessDomain":
+            items.append((index, item))
+    return items
+
+
+def _data_product_resources(resources: list[Any]) -> list[tuple[int, dict[str, Any]]]:
+    items: list[tuple[int, dict[str, Any]]] = []
+    for index, item in enumerate(resources):
+        if isinstance(item, dict) and item.get("type") == "dataProduct":
+            items.append((index, item))
+    return items
+
+
 def _business_domain_count_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     resources = document.get("resources")
     if not isinstance(resources, list):
         return []
-    if len(resources) <= MAX_BUSINESS_DOMAINS:
+    business_domains = _business_domain_resources(resources)
+    if len(business_domains) <= MAX_BUSINESS_DOMAINS:
         return []
     return [
         ConfigDiagnostic(
@@ -221,9 +238,7 @@ def _duplicate_business_domain_diagnostics(
     seen_names: dict[str, int] = {}
     diagnostics: list[ConfigDiagnostic] = []
 
-    for index, item in enumerate(resources):
-        if not isinstance(item, dict):
-            continue
+    for index, item in _business_domain_resources(resources):
         resource_id = item.get("id")
         if isinstance(resource_id, str):
             normalized_id = normalize_uuid_string(resource_id)
@@ -264,15 +279,45 @@ def _duplicate_business_domain_diagnostics(
     return diagnostics
 
 
+def _duplicate_data_product_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
+    resources = document.get("resources")
+    if not isinstance(resources, list):
+        return []
+
+    seen_ids: dict[str, int] = {}
+    diagnostics: list[ConfigDiagnostic] = []
+
+    for index, item in _data_product_resources(resources):
+        resource_id = item.get("id")
+        if not isinstance(resource_id, str):
+            continue
+        normalized_id = normalize_uuid_string(resource_id)
+        if normalized_id is None:
+            continue
+        if normalized_id in seen_ids:
+            diagnostics.append(
+                ConfigDiagnostic(
+                    code="config.duplicate_data_product_id",
+                    path=json_pointer("resources", index, "id"),
+                    message=(
+                        f"duplicate Data Product id {normalized_id!r}; "
+                        f"first seen at /resources/{seen_ids[normalized_id]}/id"
+                    ),
+                )
+            )
+        else:
+            seen_ids[normalized_id] = index
+
+    return diagnostics
+
+
 def _hierarchy_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     resources = document.get("resources")
     if not isinstance(resources, list):
         return []
 
     entries: list[tuple[int, str, str | None]] = []
-    for index, item in enumerate(resources):
-        if not isinstance(item, dict):
-            continue
+    for index, item in _business_domain_resources(resources):
         resource_id = normalize_uuid_string(item.get("id"))
         if resource_id is None:
             continue
@@ -350,6 +395,7 @@ def _semantic_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     diagnostics.extend(_tenant_id_diagnostics(document))
     diagnostics.extend(_business_domain_count_diagnostics(document))
     diagnostics.extend(_duplicate_business_domain_diagnostics(document))
+    diagnostics.extend(_duplicate_data_product_diagnostics(document))
     diagnostics.extend(_hierarchy_diagnostics(document))
     return diagnostics
 

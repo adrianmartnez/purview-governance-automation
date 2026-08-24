@@ -17,7 +17,7 @@ from purview_governance.remote_state.canonical import dumps_canonical
 
 ExecutionEligibility = Literal["ready", "blocked"]
 PlanAction = Literal["create", "replace"]
-PlanResourceTypeV3 = Literal["businessDomain"]
+PlanResourceTypeV3 = Literal["businessDomain", "dataProduct"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +171,11 @@ def build_plan_from_parts_v3(
 
 
 def desired_state_v3_from_document(document: dict[str, Any]) -> DesiredStateV3:
-    from purview_governance.desired.models_v3 import BusinessDomainDesiredState
+    from purview_governance.desired.models_v3 import (
+        BusinessDomainDesiredState,
+        DataProductDesiredState,
+        DataProductOwnerDesiredState,
+    )
 
     domains: list[BusinessDomainDesiredState] = []
     for raw in document.get("businessDomains", []):
@@ -187,11 +191,44 @@ def desired_state_v3_from_document(document: dict[str, Any]) -> DesiredStateV3:
                 is_restricted=props.get("isRestricted"),
             )
         )
-    return DesiredStateV3(business_domains=tuple(domains))
+
+    products: list[DataProductDesiredState] = []
+    for raw in document.get("dataProducts", []):
+        props = raw["properties"]
+        owners = tuple(
+            DataProductOwnerDesiredState(
+                id=owner["id"],
+                description=owner.get("description"),
+            )
+            for owner in props["owners"]
+        )
+        audience_raw = props.get("audience")
+        audience = tuple(audience_raw) if audience_raw is not None else None
+        products.append(
+            DataProductDesiredState(
+                id=raw["id"],
+                name=props["name"],
+                domain=props["domain"],
+                product_type=props["type"],
+                description=props["description"],
+                business_use=props["businessUse"],
+                owners=owners,
+                audience=audience,  # type: ignore[arg-type]
+                update_frequency=props.get("updateFrequency"),
+                endorsed=props.get("endorsed"),
+            )
+        )
+
+    return DesiredStateV3(
+        business_domains=tuple(domains),
+        data_products=tuple(products),
+    )
 
 
 def change_set_v3_from_document(document: dict[str, Any]) -> DiffDocument:
-    items: list[DiffBusinessDomainItem] = []
+    from purview_governance.diff.models_v3 import DiffDataProductItem
+
+    items: list[DiffBusinessDomainItem | DiffDataProductItem] = []
     for raw in document.get("items", []):
         reasons = tuple(
             DiffReason(
@@ -203,14 +240,25 @@ def change_set_v3_from_document(document: dict[str, Any]) -> DiffDocument:
             for reason in raw["reasons"]
         )
         outcome: DiffOutcome = raw["outcome"]
-        items.append(
-            DiffBusinessDomainItem(
-                id=raw["id"],
-                resource_type="businessDomain",
-                outcome=outcome,
-                reasons=reasons,
+        resource_type = raw["type"]
+        if resource_type == "dataProduct":
+            items.append(
+                DiffDataProductItem(
+                    id=raw["id"],
+                    resource_type="dataProduct",
+                    outcome=outcome,
+                    reasons=reasons,
+                )
             )
-        )
+        else:
+            items.append(
+                DiffBusinessDomainItem(
+                    id=raw["id"],
+                    resource_type="businessDomain",
+                    outcome=outcome,
+                    reasons=reasons,
+                )
+            )
     return DiffDocument(items=tuple(items))
 
 

@@ -1,4 +1,4 @@
-"""Desired-state comparison models for Business Domains (contract v3)."""
+"""Desired-state comparison models for Business Domains and Data Products (contract v3)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from purview_governance.config.models_v3 import (
+    AudienceType,
     BusinessDomainStatus,
     BusinessDomainType,
+    DataProductType,
+    UpdateFrequencyType,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DataProductOwnerDesiredState:
+    id: str
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,12 +51,58 @@ class BusinessDomainDesiredState:
 
 
 @dataclass(frozen=True, slots=True)
-class DesiredStateV3:
-    """Deterministic desired-state snapshot for Business Domains."""
+class DataProductDesiredState:
+    """Material desired fields for a Data Product (UUID-keyed)."""
 
-    business_domains: tuple[BusinessDomainDesiredState, ...] = ()
+    id: str
+    name: str
+    domain: str
+    product_type: DataProductType
+    description: str
+    business_use: str
+    owners: tuple[DataProductOwnerDesiredState, ...]
+    audience: tuple[AudienceType, ...] | None = None
+    update_frequency: UpdateFrequencyType | None = None
+    endorsed: bool | None = None
 
     def to_document(self) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "name": self.name,
+            "domain": self.domain,
+            "type": self.product_type,
+            "description": self.description,
+            "businessUse": self.business_use,
+            "owners": [
+                {
+                    "id": owner.id,
+                    **({"description": owner.description} if owner.description is not None else {}),
+                }
+                for owner in self.owners
+            ],
+        }
+        if self.audience is not None:
+            properties["audience"] = list(self.audience)
+        if self.update_frequency is not None:
+            properties["updateFrequency"] = self.update_frequency
+        if self.endorsed is not None:
+            properties["endorsed"] = self.endorsed
         return {
+            "id": self.id,
+            "properties": properties,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DesiredStateV3:
+    """Deterministic desired-state snapshot for Unified Catalog v3."""
+
+    business_domains: tuple[BusinessDomainDesiredState, ...] = ()
+    data_products: tuple[DataProductDesiredState, ...] = ()
+
+    def to_document(self) -> dict[str, Any]:
+        doc: dict[str, Any] = {
             "businessDomains": [item.to_document() for item in self.business_domains],
         }
+        if self.data_products:
+            doc["dataProducts"] = [item.to_document() for item in self.data_products]
+        return doc

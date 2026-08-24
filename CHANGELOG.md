@@ -13,6 +13,15 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Added
 
+- Data Products declarative modeling in contract **v3** (planning-only; no apply):
+  config desired state, opt-in remote capture (Shape B), diff, and plan with
+  domain dependency resolution and deterministic operation ordering.
+- `enumerate_data_products()` on `PurviewUnifiedCatalogClient` (14 official
+  `CatalogModelDataProductTypeEnum` values from API `2026-03-20-preview`).
+- Opt-in remote capture `include_data_products=True` (Shape B); default capture
+  remains Business Domain–only (Shape A, PR2 compatible).
+- Data Product safety: `status` / `provisioningState`, deferred configurables,
+  owner/audience canonicalization, domain move fail-closed policy.
 - Business Domains declarative modeling via contract **v3**:
   `purview-governance-config/v3`, `purview-remote-state/v3`,
   `purview-governance-plan/v3` (planning-only; no apply).
