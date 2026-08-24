@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "purview-governance-automation"
 dynamic = ["version"]
-description = "Microsoft Purview governance automation: versioned config/remote/plan/result (v1+v2), Entra auth, Scanning Data Plane client (2023-09-01), desired-state diff, safe explicit apply, and CLI workflows for validate/capture/plan/inspect/dry-run/apply."
+description = "Microsoft Purview governance automation: versioned config/remote/plan/result (v1+v2), Entra auth, Scanning Data Plane client (2023-09-01), Unified Catalog Public Preview foundation (2026-03-20-preview), desired-state diff, safe explicit apply, and CLI workflows."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-authors = [{ name = "fgnfmackk" }]
+authors = [{ name = "adrianmartnez" }]
 dependencies = [
     "PyYAML>=6.0.1",
     "jsonschema>=4.22",
@@ -46,7 +46,7 @@ version = { attr = "purview_governance.__version__" }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "api_contract: offline Purview Scanning Data Plane contract tests against a local loopback server (not live Microsoft Purview validation)",
+    "api_contract: offline Purview API contract tests against local loopback servers (Scanning Data Plane and Unified Catalog; not live Microsoft Purview validation)",
 ]
 
 [tool.ruff]

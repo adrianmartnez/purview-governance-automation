@@ -11,6 +11,29 @@ keep contract `v1` while those artifacts remain compatible.
 
 ## [Unreleased]
 
+### Added
+
+- `unified_catalog` package with `PurviewUnifiedCatalogClient`, fail-closed
+  production endpoint policy (`https://api.purview-service.microsoft.com`),
+  Public Preview API `2026-03-20-preview`, compatibility metadata, and
+  read-only `enumerate_business_domains()` contract proof.
+- Offline Unified Catalog loopback contract server and tests (isolated from
+  Scanning contract harness).
+
+### Changed
+
+- Package development version `1.2.0.dev0`.
+
+### Fixed
+
+- README CI badge and package author metadata (`adrianmartnez`).
+
+### Safety
+
+- Unified Catalog client secret-sentinel coverage; bearer tokens are not
+  persisted; Authorization is excluded from sanitized errors and contract
+  recordings.
+
 ## [1.1.0] - 2026-08-11
 
 First stable package release of Scanning and Classification as Code
