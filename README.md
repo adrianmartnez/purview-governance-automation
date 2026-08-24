@@ -1,14 +1,15 @@
 # purview-governance-automation
 
-[![CI](https://github.com/fgnfmackk/purview-governance-automation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fgnfmackk/purview-governance-automation/actions/workflows/ci.yml)
+[![CI](https://github.com/adrianmartnez/purview-governance-automation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/adrianmartnez/purview-governance-automation/actions/workflows/ci.yml)
 
 Microsoft Purview governance automation in Python: declare desired Scanning
 configuration as code, compare it to remote state, produce a deterministic plan,
 and apply create-or-replace mutations only with an explicit opt-in.
 
 Stable package version: `1.1.0` (v1.1 Scanning and Classification as Code
-released / stable). Package `1.0.0` remains the historical v1.0 foundation
-release.
+released / stable). The working development package version is `1.2.0.dev0`
+(v1.2 Unified Catalog foundation in progress). Package `1.0.0` remains the
+historical v1.0 foundation release.
 
 Multi-resource config/remote/diff/plan/apply **v2** covers AzureStorage Data
 Sources, AzureStorageMsi Scans, Custom AzureStorage Scan Rule Sets, and Custom
@@ -46,10 +47,27 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
 - CLI workflows for config/remote-state/plan/apply/result (v1 and v2 by
   `apiVersion`; apply accepts plan/v2)
 
+### Unified Catalog (v1.2 — in development)
+
+- isolated `unified_catalog/` adapter for Microsoft Purview Unified Catalog
+  **Public Preview** (API `2026-03-20-preview`)
+- production service endpoint documented by Microsoft:
+  `https://api.purview-service.microsoft.com` (independent from Scanning
+  `{account}.purview.azure.com` / API `2023-09-01`)
+- `PurviewUnifiedCatalogClient` with read-only `enumerate_business_domains()`
+  contract proof (PagedDomain pagination)
+- compatibility metadata (`surface=unified-catalog`, runtime API version pinned)
+- offline loopback contract tests for Unified Catalog (separate from Scanning
+  contract server)
+- **not** full Business Domains / Data Products / Terms as Code yet
+- **not** live-tenant validation; contract-tested offline ≠ production Purview
+  validation
+
 ### Contract-tested offline
 
 Default CI and reviewer flows exercise the Scanning client, remote-state capture,
 plan build, dry-run, and authorized apply against a deterministic local HTTP
+contract server, and the Unified Catalog foundation against a separate loopback
 contract server. This does **not** contact a live Microsoft Purview account and
 does **not** claim live-tenant validation. Offline contract tests are not a
 substitute for production validation against Microsoft Purview.
@@ -59,7 +77,8 @@ substitute for production validation against Microsoft Purview.
 - Data Source kinds beyond AzureStorage
 - Scan / SRS / Classification Rule kinds beyond the supported AzureStorage /
   Custom / AzureStorageMsi slice
-- Unified Catalog (v1.2)
+- Unified Catalog desired-state / diff / plan / apply (beyond PR1 foundation)
+- Unified Catalog CLI commands
 - automatic deletes
 - automatic retries
 - rollback
@@ -238,7 +257,7 @@ purview-governance config validate examples/fictional-governance-config-v2.yaml
 
 ```text
 src/purview_governance/
-  auth/ config/ desired/ diff/ plan/ remote_state/ scanning/ apply/
+  auth/ config/ desired/ diff/ plan/ remote_state/ scanning/ unified_catalog/ apply/
   cli.py
 examples/
 tests/   # unit, api_contract, cli offline workflows (v1 + v2)
@@ -251,7 +270,7 @@ CHANGELOG.md
 - v1.0 — Purview Automation Foundation (**stable / released** as package `1.0.0`)
 - v1.1 — Scanning and Classification as Code (**stable / released** as package
   `1.1.0`)
-- v1.2 — Unified Catalog Governance (next development milestone)
+- v1.2 — Unified Catalog Governance (**in development** as package `1.2.0.dev0`)
 - v1.3 — Governance Drift and Operations
 - v2.0 — Enterprise Automation and Extensibility
 

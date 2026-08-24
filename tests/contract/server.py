@@ -17,8 +17,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from purview_governance.scanning.constants import SCANNING_API_VERSION
+from tests.contract.auth import AUTH_SENTINEL
 
-AUTH_SENTINEL = "Bearer TEST_PURVIEW_AUTH_SENTINEL"
 HEALTH_PATH = "/health"
 HEALTH_PAYLOAD = {"status": "ok", "lane": "api-contract-tests"}
 
