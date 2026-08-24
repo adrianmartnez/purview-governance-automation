@@ -13,6 +13,9 @@ import httpx
 from purview_governance.auth.provider import PurviewAuthorizationProvider
 from purview_governance.unified_catalog.constants import (
     BUSINESS_DOMAINS_PATH,
+    DATA_ASSETS_PATH,
+    DATA_COLUMN_QUERY_PAGE_SIZE,
+    DATA_COLUMNS_QUERY_PATH,
     DATA_PRODUCTS_PATH,
     DEFAULT_TIMEOUT,
     GLOSSARY_TERMS_PATH,
@@ -67,6 +70,76 @@ class GlossaryTermListResult:
     @property
     def item_count(self) -> int:
         return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class DataAssetListResult:
+    """Aggregated Data Asset enumerate snapshot."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class DataColumnQueryResult:
+    """Aggregated Data Column query snapshot."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class GovernanceRelationshipListResult:
+    """Aggregated governance relationship list snapshot."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+def _validate_paged_value_page(
+    data: dict[str, Any],
+    *,
+    contract_name: str,
+) -> tuple[list[dict[str, Any]], str | None]:
+    if "value" not in data:
+        raise UnifiedCatalogResponseError(
+            "unified_catalog.invalid_response_contract",
+            f"{contract_name} response must include a value array",
+        )
+    value = data["value"]
+    if not isinstance(value, list):
+        raise UnifiedCatalogResponseError(
+            "unified_catalog.invalid_response_contract",
+            f"{contract_name} value must be an array",
+        )
+    items: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_response_contract",
+                f"{contract_name} value entries must be JSON objects",
+            )
+        items.append(_defensive_snapshot(entry))
+
+    next_link: str | None = None
+    if "nextLink" in data and data["nextLink"] is not None:
+        raw = data["nextLink"]
+        if not isinstance(raw, str) or not raw.strip():
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_response_contract",
+                f"{contract_name} nextLink must be a non-empty string when present",
+            )
+        next_link = raw.strip()
+    return items, next_link
 
 
 def _defensive_snapshot(value: Any) -> Any:
@@ -334,6 +407,7 @@ class PurviewUnifiedCatalogClient:
         *,
         operation: str,
         headers: dict[str, str],
+        json_body: dict[str, Any] | None = None,
     ) -> httpx.Response:
         failed_timeout = False
         failed_request = False
@@ -342,6 +416,7 @@ class PurviewUnifiedCatalogClient:
                 method,
                 url,
                 headers=headers,
+                json=json_body,
                 follow_redirects=False,
                 timeout=DEFAULT_TIMEOUT,
             )
@@ -360,6 +435,223 @@ class PurviewUnifiedCatalogClient:
                 f"{operation} transport request failed",
             )
         raise AssertionError("unreachable")
+
+    def _paginate_get_list(
+        self,
+        initial_url: str,
+        *,
+        operation: str,
+        contract_name: str,
+    ) -> tuple[dict[str, Any], ...]:
+        url = initial_url
+        aggregated: list[dict[str, Any]] = []
+        seen_links: set[str] = set()
+        pages = 0
+
+        while True:
+            pages += 1
+            if pages > MAX_LIST_PAGES:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_limit_exceeded",
+                    f"{operation} pagination exceeded the maximum number of pages",
+                )
+
+            headers = {
+                "Authorization": self._authorization_header(),
+                "Accept": "application/json",
+            }
+            response = self._send(
+                "GET",
+                url,
+                operation=operation,
+                headers=headers,
+            )
+            if response.status_code != 200:
+                self._raise_http_error(
+                    response,
+                    operation=operation,
+                    method="GET",
+                    url=url,
+                )
+
+            data = _parse_json_object(response, operation=operation)
+            items, next_link = _validate_paged_value_page(data, contract_name=contract_name)
+            aggregated.extend(items)
+
+            if next_link is None:
+                break
+            if next_link in seen_links:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_loop",
+                    f"{operation} pagination encountered a repeated nextLink",
+                )
+            seen_links.add(next_link)
+            url = validate_absolute_same_origin_next_link(next_link, self._origin)
+
+        return tuple(aggregated)
+
+    def _data_assets_url(self) -> str:
+        query = urlencode(
+            {
+                "api-version": UNIFIED_CATALOG_API_VERSION,
+                "includeExtendedProperties": "false",
+            }
+        )
+        return f"{self._base_url}{DATA_ASSETS_PATH}?{query}"
+
+    def _data_product_relationships_url(self, product_id: str, entity_type: str) -> str:
+        query = urlencode(
+            {
+                "api-version": UNIFIED_CATALOG_API_VERSION,
+                "entityType": entity_type,
+            }
+        )
+        return f"{self._base_url}{DATA_PRODUCTS_PATH}/{product_id}/relationships?{query}"
+
+    def _glossary_term_relationships_url(
+        self,
+        term_id: str,
+        entity_type: str,
+        relationship_type: str,
+    ) -> str:
+        query = urlencode(
+            {
+                "api-version": UNIFIED_CATALOG_API_VERSION,
+                "entityType": entity_type,
+                "relationshipType": relationship_type,
+            }
+        )
+        return f"{self._base_url}{GLOSSARY_TERMS_PATH}/{term_id}/relationships?{query}"
+
+    def enumerate_data_assets(self) -> DataAssetListResult:
+        """Enumerate Data Assets without extended properties."""
+        return DataAssetListResult(
+            items=self._paginate_get_list(
+                self._data_assets_url(),
+                operation="enumerate_data_assets",
+                contract_name="PagedDataAsset",
+            )
+        )
+
+    def query_data_columns(self) -> DataColumnQueryResult:
+        """Query Data Columns with orphan and enrichment flags (POST pagination §10)."""
+        aggregated: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        current_offset = 0
+        pages = 0
+        query_url = (
+            f"{self._base_url}{DATA_COLUMNS_QUERY_PATH}"
+            f"?{urlencode({'api-version': UNIFIED_CATALOG_API_VERSION})}"
+        )
+
+        while True:
+            pages += 1
+            if pages > MAX_LIST_PAGES:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_limit_exceeded",
+                    "data column query pagination exceeded the maximum number of pages",
+                )
+
+            body = {
+                "includingOrphans": True,
+                "includeColumnDetails": True,
+                "includeAssetDetails": True,
+                "skip": current_offset,
+                "top": DATA_COLUMN_QUERY_PAGE_SIZE,
+            }
+            headers = {
+                "Authorization": self._authorization_header(),
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }
+            response = self._send(
+                "POST",
+                query_url,
+                operation="query_data_columns",
+                headers=headers,
+                json_body=body,
+            )
+            if response.status_code != 200:
+                self._raise_http_error(
+                    response,
+                    operation="query_data_columns",
+                    method="POST",
+                    url=query_url,
+                )
+
+            data = _parse_json_object(response, operation="query_data_columns")
+            items, next_link = _validate_paged_value_page(
+                data,
+                contract_name="DataColumnQueryResponse",
+            )
+            if next_link is not None:
+                validate_absolute_same_origin_next_link(next_link, self._origin)
+
+            if len(items) == 0:
+                if next_link is not None:
+                    raise UnifiedCatalogPaginationError(
+                        "unified_catalog.invalid_pagination_link",
+                        "empty data column page must not include nextLink",
+                    )
+                break
+
+            for item in items:
+                raw_id = item.get("id")
+                if not isinstance(raw_id, str):
+                    raise UnifiedCatalogResponseError(
+                        "unified_catalog.invalid_response_contract",
+                        "data column id must be a string",
+                    )
+                if raw_id in seen_ids:
+                    raise UnifiedCatalogPaginationError(
+                        "unified_catalog.duplicate_id",
+                        "duplicate data column id across query pages",
+                    )
+                seen_ids.add(raw_id)
+            aggregated.extend(items)
+
+            if next_link is not None:
+                current_offset += len(items)
+                continue
+
+            if len(items) < DATA_COLUMN_QUERY_PAGE_SIZE:
+                break
+            current_offset += len(items)
+
+        return DataColumnQueryResult(items=tuple(aggregated))
+
+    def list_data_product_relationships(
+        self,
+        product_id: str,
+        *,
+        entity_type: str = "DATAASSET",
+    ) -> GovernanceRelationshipListResult:
+        """List Data Product relationships for one product (family A)."""
+        url = self._data_product_relationships_url(product_id, entity_type)
+        return GovernanceRelationshipListResult(
+            items=self._paginate_get_list(
+                url,
+                operation="list_data_product_relationships",
+                contract_name="PagedDataProductRelationship",
+            )
+        )
+
+    def list_glossary_term_relationships(
+        self,
+        term_id: str,
+        *,
+        entity_type: str,
+        relationship_type: str = "Related",
+    ) -> GovernanceRelationshipListResult:
+        """List Glossary Term relationships for one term (families B/C)."""
+        url = self._glossary_term_relationships_url(term_id, entity_type, relationship_type)
+        return GovernanceRelationshipListResult(
+            items=self._paginate_get_list(
+                url,
+                operation="list_glossary_term_relationships",
+                contract_name="PagedTermRelationship",
+            )
+        )
 
     def _enumerate_business_domains_paginated(self) -> tuple[dict[str, Any], ...]:
         url = self._business_domains_url()

@@ -13,6 +13,8 @@ from urllib.parse import parse_qs, urlparse
 
 from purview_governance.unified_catalog.constants import (
     BUSINESS_DOMAINS_PATH,
+    DATA_ASSETS_PATH,
+    DATA_COLUMNS_QUERY_PATH,
     DATA_PRODUCTS_PATH,
     GLOSSARY_TERMS_PATH,
     UNIFIED_CATALOG_API_VERSION,
@@ -157,6 +159,84 @@ def fictional_glossary_term_item(
     return item
 
 
+def paged_data_assets_fixture(
+    items: list[dict[str, Any]],
+    *,
+    next_link: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"value": list(items)}
+    if next_link is not None:
+        body["nextLink"] = next_link
+    return body
+
+
+def fictional_data_asset_item(
+    *,
+    asset_id: str = "60000000-0000-4000-8000-000000000001",
+    name: str = "fictional-data-asset",
+    asset_type: str = "General",
+) -> dict[str, Any]:
+    return {
+        "id": asset_id,
+        "name": name,
+        "type": asset_type,
+        "source": {
+            "type": "AzureSqlTable",
+            "assetId": "70000000-0000-4000-8000-000000000001",
+            "assetType": "AzureSqlTable",
+            "fqn": "sqlserver.database.schema.table",
+            "accountName": "fictional-account",
+            "assetAttributes": ["attr1"],
+        },
+        "systemData": {
+            "createdAt": "1970-01-01T00:00:00.000Z",
+            "createdBy": "00000000-0000-0000-0000-000000000001",
+            "lastModifiedAt": "1970-01-01T00:00:00.000Z",
+            "lastModifiedBy": "00000000-0000-0000-0000-000000000001",
+            "provisioningState": "Succeeded",
+        },
+    }
+
+
+def paged_data_columns_fixture(
+    items: list[dict[str, Any]],
+    *,
+    next_link: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"value": list(items)}
+    if next_link is not None:
+        body["nextLink"] = next_link
+    return body
+
+
+def fictional_data_column_item(
+    *,
+    column_id: str = "80000000-0000-4000-8000-000000000001",
+    name: str = "fictional-column",
+    column_type: str = "General",
+) -> dict[str, Any]:
+    return {
+        "id": column_id,
+        "name": name,
+        "type": column_type,
+        "source": {
+            "type": "AzureSqlColumn",
+            "assetId": "70000000-0000-4000-8000-000000000001",
+            "columnId": "90000000-0000-4000-8000-000000000001",
+            "assetType": "AzureSqlTable",
+            "fqn": "sqlserver.database.schema.table.column",
+            "accountName": "fictional-account",
+            "assetAttributes": ["attr1"],
+        },
+        "columnDetails": {"dataType": "varchar", "isNullable": True},
+        "assetDetails": {"assetId": "dg-asset-string-id", "name": "parent-asset"},
+    }
+
+
+def paged_relationships_fixture(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"value": list(items)}
+
+
 @dataclass
 class UnifiedCatalogScenarioState:
     enumerate_mode: str = "success"
@@ -172,6 +252,17 @@ class UnifiedCatalogScenarioState:
     enumerate_glossary_terms_items: list[dict[str, Any]] = field(default_factory=list)
     enumerate_glossary_terms_page2_items: list[dict[str, Any]] = field(default_factory=list)
     enumerate_glossary_terms_next_link: str | None = None
+    enumerate_data_assets_mode: str = "success"
+    enumerate_data_assets_items: list[dict[str, Any]] = field(default_factory=list)
+    enumerate_data_assets_page2_items: list[dict[str, Any]] = field(default_factory=list)
+    enumerate_data_assets_next_link: str | None = None
+    query_data_columns_mode: str = "success"
+    query_data_columns_items: list[dict[str, Any]] = field(default_factory=list)
+    query_data_columns_page2_items: list[dict[str, Any]] = field(default_factory=list)
+    query_data_columns_next_link: str | None = None
+    data_product_relationships: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    glossary_term_relationships: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    column_query_requests: list[dict[str, Any]] = field(default_factory=list)
     recordings: list[RecordedRequest] = field(default_factory=list)
 
 
@@ -363,6 +454,113 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
             items = state.enumerate_glossary_terms_items or [fictional_glossary_term_item()]
             self._send_json(200, paged_glossary_terms_fixture(items))
 
+        def _handle_enumerate_data_assets(self, parsed: Any) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            mode = state.enumerate_data_assets_mode
+            if mode == "bad_shape":
+                self._send_json(200, {"value": "not-an-array"})
+                return
+            if mode == "paginated":
+                query = parse_qs(parsed.query)
+                if "$skipToken" in query:
+                    items = state.enumerate_data_assets_page2_items or [
+                        fictional_data_asset_item(
+                            asset_id="dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee",
+                            name="fictional-asset-page-two",
+                        )
+                    ]
+                    self._send_json(200, paged_data_assets_fixture(items))
+                    return
+                page_one = state.enumerate_data_assets_items or [fictional_data_asset_item()]
+                token = "fictional-data-asset-skip-token"
+                next_link = state.enumerate_data_assets_next_link or (
+                    f"http://127.0.0.1:{self.server.server_address[1]}"
+                    f"{DATA_ASSETS_PATH}"
+                    f"?api-version={UNIFIED_CATALOG_API_VERSION}&$skipToken={token}"
+                )
+                self._send_json(200, paged_data_assets_fixture(page_one, next_link=next_link))
+                return
+            items = state.enumerate_data_assets_items or [fictional_data_asset_item()]
+            self._send_json(200, paged_data_assets_fixture(items))
+
+        def _handle_query_data_columns(self, parsed: Any, body: dict[str, Any]) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            state.column_query_requests.append(dict(body))
+            mode = state.query_data_columns_mode
+            if mode == "bad_shape":
+                self._send_json(200, {"value": "not-an-array"})
+                return
+            if mode == "empty_next_link":
+                next_link = (
+                    f"http://127.0.0.1:{self.server.server_address[1]}"
+                    f"{DATA_COLUMNS_QUERY_PATH}"
+                    f"?api-version={UNIFIED_CATALOG_API_VERSION}"
+                )
+                self._send_json(200, paged_data_columns_fixture([], next_link=next_link))
+                return
+            if mode == "foreign_next_link":
+                item = fictional_data_column_item()
+                foreign = state.cross_origin_next_link or "https://evil.example/continue"
+                self._send_json(200, paged_data_columns_fixture([item], next_link=foreign))
+                return
+            if mode == "malformed_next_link":
+                self._send_json(
+                    200,
+                    {"value": [fictional_data_column_item()], "nextLink": 123},
+                )
+                return
+            if mode == "full_page":
+                skip = int(body.get("skip", 0))
+                if skip > 0:
+                    self._send_json(200, paged_data_columns_fixture([]))
+                    return
+                page = state.query_data_columns_items or [fictional_data_column_item()]
+                self._send_json(200, paged_data_columns_fixture(page))
+                return
+            skip = int(body.get("skip", 0))
+            if skip > 0:
+                items = state.query_data_columns_page2_items or [
+                    fictional_data_column_item(
+                        column_id="eeeeeeee-bbbb-cccc-dddd-eeeeeeeeeeee",
+                        name="fictional-column-page-two",
+                    )
+                ]
+                self._send_json(200, paged_data_columns_fixture(items))
+                return
+            page_one = state.query_data_columns_items or [fictional_data_column_item()]
+            if state.query_data_columns_page2_items or state.query_data_columns_next_link:
+                next_link = state.query_data_columns_next_link or (
+                    f"http://127.0.0.1:{self.server.server_address[1]}"
+                    f"{DATA_COLUMNS_QUERY_PATH}"
+                    f"?api-version={UNIFIED_CATALOG_API_VERSION}"
+                )
+                self._send_json(200, paged_data_columns_fixture(page_one, next_link=next_link))
+                return
+            self._send_json(200, paged_data_columns_fixture(page_one))
+
+        def _handle_relationships(self, parsed: Any) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            parts = parsed.path.split("/")
+            if len(parts) < 5 or parts[-1] != "relationships":
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            resource_kind = parts[-3]
+            resource_id = parts[-2]
+            query = parse_qs(parsed.query)
+            if resource_kind == "dataProducts":
+                items = state.data_product_relationships.get(resource_id, [])
+            elif resource_kind == "terms":
+                entity_type = query.get("entityType", [""])[0]
+                key = f"{resource_id}:{entity_type}"
+                items = state.glossary_term_relationships.get(key, [])
+            else:
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            self._send_json(200, paged_relationships_fixture(items))
+
         def _handle_enumerate(self, parsed: Any) -> None:
             if not self._validate_api_version(parsed):
                 return
@@ -472,7 +670,40 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                     return
                 self._handle_enumerate_glossary_terms(parsed)
                 return
+            if parsed.path == DATA_ASSETS_PATH:
+                if not self._require_auth():
+                    self._send_json(401, {"error": {"code": "Unauthorized"}})
+                    return
+                self._handle_enumerate_data_assets(parsed)
+                return
+            if parsed.path.endswith("/relationships"):
+                if not self._require_auth():
+                    self._send_json(401, {"error": {"code": "Unauthorized"}})
+                    return
+                self._handle_relationships(parsed)
+                return
             self._send_json(404, {"error": {"code": "NotFound"}})
+
+        def do_POST(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            self._record()
+            if parsed.path != DATA_COLUMNS_QUERY_PATH:
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            if not self._require_auth():
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            try:
+                body = json.loads(raw.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                return
+            if not isinstance(body, dict):
+                self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                return
+            self._handle_query_data_columns(parsed, body)
 
     return UnifiedCatalogContractHandler
 
@@ -493,6 +724,16 @@ def start_unified_catalog_contract_server(
     enumerate_glossary_terms_items: list[dict[str, Any]] | None = None,
     enumerate_glossary_terms_page2_items: list[dict[str, Any]] | None = None,
     enumerate_glossary_terms_next_link: str | None = None,
+    enumerate_data_assets_mode: str = "success",
+    enumerate_data_assets_items: list[dict[str, Any]] | None = None,
+    enumerate_data_assets_page2_items: list[dict[str, Any]] | None = None,
+    enumerate_data_assets_next_link: str | None = None,
+    query_data_columns_mode: str = "success",
+    query_data_columns_items: list[dict[str, Any]] | None = None,
+    query_data_columns_page2_items: list[dict[str, Any]] | None = None,
+    query_data_columns_next_link: str | None = None,
+    data_product_relationships: dict[str, list[dict[str, Any]]] | None = None,
+    glossary_term_relationships: dict[str, list[dict[str, Any]]] | None = None,
 ) -> Iterator[UnifiedCatalogContractServer]:
     """Start a daemon Unified Catalog contract server on an ephemeral loopback port."""
     state = UnifiedCatalogScenarioState(
@@ -509,6 +750,16 @@ def start_unified_catalog_contract_server(
         enumerate_glossary_terms_items=list(enumerate_glossary_terms_items or []),
         enumerate_glossary_terms_page2_items=list(enumerate_glossary_terms_page2_items or []),
         enumerate_glossary_terms_next_link=enumerate_glossary_terms_next_link,
+        enumerate_data_assets_mode=enumerate_data_assets_mode,
+        enumerate_data_assets_items=list(enumerate_data_assets_items or []),
+        enumerate_data_assets_page2_items=list(enumerate_data_assets_page2_items or []),
+        enumerate_data_assets_next_link=enumerate_data_assets_next_link,
+        query_data_columns_mode=query_data_columns_mode,
+        query_data_columns_items=list(query_data_columns_items or []),
+        query_data_columns_page2_items=list(query_data_columns_page2_items or []),
+        query_data_columns_next_link=query_data_columns_next_link,
+        data_product_relationships=dict(data_product_relationships or {}),
+        glossary_term_relationships=dict(glossary_term_relationships or {}),
     )
     handler = _make_handler(state)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)

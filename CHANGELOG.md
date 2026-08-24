@@ -13,6 +13,13 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Added
 
+- Data Assets and Data Columns **read-model** capture in `purview-remote-state/v3`
+  (PR5): opt-in `include_data_assets`, `include_data_columns`, and governance
+  relationship families A–C via separate `readModelCoverage` (sparse positive-only).
+- `enumerate_data_assets()`, `query_data_columns()`, and relationship list methods
+  on `PurviewUnifiedCatalogClient` (read-only GET/POST query).
+- Governance relationship normalization for `dataProductToDataAsset`,
+  `glossaryTermToDataAsset`, and `glossaryTermToDataColumn` (Related only).
 - Glossary Terms declarative modeling in contract **v3** (planning-only; no apply):
   config desired state, opt-in remote capture (Shapes C/D), diff, and plan with
   domain/parent dependency resolution, scoped hierarchy validation, and

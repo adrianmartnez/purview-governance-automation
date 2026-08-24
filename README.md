@@ -55,8 +55,10 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
   `https://api.purview-service.microsoft.com` (independent from Scanning
   `{account}.purview.azure.com` / API `2023-09-01`)
 - `PurviewUnifiedCatalogClient` with read-only `enumerate_business_domains()`,
-  opt-in `enumerate_data_products()`, and opt-in `enumerate_glossary_terms()`
-  (PagedDomain / PagedDataProduct / PagedTerm pagination)
+  opt-in `enumerate_data_products()`, opt-in `enumerate_glossary_terms()`, opt-in
+  `enumerate_data_assets()`, opt-in `query_data_columns()`, and relationship list
+  helpers (PagedDomain / PagedDataProduct / PagedTerm pagination; Data Column POST
+  query with nextLink-aware termination)
 - **Business Domains + Data Products + Glossary Terms** declarative config/remote/diff/plan via
   contract **v3** (`purview-governance-config/v3`, `purview-remote-state/v3`,
   `purview-governance-plan/v3`) — **planning-only**; no Unified Catalog apply in
@@ -65,6 +67,9 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
   compatible); Data Product capture is **opt-in**
   (`include_data_products=True`, Shape B); Glossary Term capture is **opt-in**
   (`include_glossary_terms=True`, Shape C); both together is Shape D
+- Data Assets / Data Columns / governance relationships are **read-model-only**
+  extensions via `readModelCoverage` (PR5); no config/desired/diff/plan/apply for
+  those resource types in v1.2
 - enumeration is **permission-scoped** — empty capture means zero visible items
   for the credentials used, not tenant-wide inventory
 - duplicate Data Product and Glossary Term **names** are allowed; matching is UUID-only
