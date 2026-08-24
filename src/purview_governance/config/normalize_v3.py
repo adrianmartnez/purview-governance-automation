@@ -18,6 +18,8 @@ from purview_governance.config.models_v3 import (
     BusinessDomainResourceConfig,
     DataProductOwnerConfig,
     DataProductResourceConfig,
+    GlossaryTermOwnerConfig,
+    GlossaryTermResourceConfig,
     GovernanceConfigV3,
     ResourceConfigV3,
     TargetConfigV3,
@@ -428,6 +430,141 @@ def _normalize_data_product_resource(
     )
 
 
+def _normalize_acronyms(
+    raw_acronyms: object,
+    *,
+    path_base: tuple[object, ...],
+) -> tuple[str, ...]:
+    if not isinstance(raw_acronyms, list):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "acronyms"),
+                    message="acronyms must be an array",
+                ),
+            )
+        )
+    seen: set[str] = set()
+    values: list[str] = []
+    for index, entry in enumerate(raw_acronyms):
+        if not isinstance(entry, str) or not entry:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "acronyms", index),
+                        message="acronym must be a non-empty string",
+                    ),
+                )
+            )
+        if entry in seen:
+            raise ConfigValidationError(
+                (
+                    ConfigDiagnostic(
+                        code="config.invalid_syntax",
+                        path=json_pointer(*path_base, "acronyms", index),
+                        message=f"duplicate acronym value {entry!r}",
+                    ),
+                )
+            )
+        seen.add(entry)
+        values.append(entry)
+    return tuple(sorted(values))
+
+
+def _normalize_glossary_term_resource(
+    raw: dict[str, Any],
+    *,
+    index: int,
+) -> GlossaryTermResourceConfig:
+    path_base = ("resources", index)
+    resource_id = _require_uuid(
+        raw.get("id"),
+        path=(*path_base, "id"),
+        field_label="Glossary Term id",
+    )
+
+    props = raw.get("properties")
+    if not isinstance(props, dict):
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties"),
+                    message="properties must be an object",
+                ),
+            )
+        )
+
+    name = props.get("name")
+    if not isinstance(name, str) or not name:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "name"),
+                    message="name must be a non-empty string",
+                ),
+            )
+        )
+
+    domain = _require_uuid(
+        props.get("domain"),
+        path=(*path_base, "properties", "domain"),
+        field_label="domain",
+    )
+
+    description = props.get("description")
+    if not isinstance(description, str) or not description:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "description"),
+                    message="description must be a non-empty string",
+                ),
+            )
+        )
+    if len(description) > 10_000:
+        raise ConfigValidationError(
+            (
+                ConfigDiagnostic(
+                    code="config.invalid_syntax",
+                    path=json_pointer(*path_base, "properties", "description"),
+                    message="description must not exceed 10000 characters",
+                ),
+            )
+        )
+
+    dp_owners = _normalize_owners(props.get("owners"), path_base=(*path_base, "properties"))
+    owners = tuple(
+        GlossaryTermOwnerConfig(id=owner.id, description=owner.description) for owner in dp_owners
+    )
+
+    parent_id: str | None = None
+    if "parentId" in props:
+        parent_id = _require_uuid(
+            props.get("parentId"),
+            path=(*path_base, "properties", "parentId"),
+            field_label="parentId",
+        )
+
+    acronyms: tuple[str, ...] | None = None
+    if "acronyms" in props:
+        acronyms = _normalize_acronyms(props["acronyms"], path_base=(*path_base, "properties"))
+
+    return GlossaryTermResourceConfig(
+        id=resource_id,
+        name=name,
+        domain=domain,
+        description=description,
+        owners=owners,
+        parent_id=parent_id,
+        acronyms=acronyms,
+    )
+
+
 def _normalize_resource(raw: object, *, index: int) -> ResourceConfigV3:
     path_base = ("resources", index)
     if not isinstance(raw, dict):
@@ -445,6 +582,8 @@ def _normalize_resource(raw: object, *, index: int) -> ResourceConfigV3:
         return _normalize_business_domain_resource(raw, index=index)
     if resource_type == "dataProduct":
         return _normalize_data_product_resource(raw, index=index)
+    if resource_type == "glossaryTerm":
+        return _normalize_glossary_term_resource(raw, index=index)
     raise ConfigValidationError(
         (
             ConfigDiagnostic(

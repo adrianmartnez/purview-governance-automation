@@ -93,11 +93,53 @@ class DataProductDesiredState:
 
 
 @dataclass(frozen=True, slots=True)
+class GlossaryTermOwnerDesiredState:
+    id: str
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GlossaryTermDesiredState:
+    """Material desired fields for a Glossary Term (UUID-keyed)."""
+
+    id: str
+    name: str
+    domain: str
+    description: str
+    owners: tuple[GlossaryTermOwnerDesiredState, ...]
+    parent_id: str | None = None  # None = ROOT intent (NOT unmanaged)
+    acronyms: tuple[str, ...] | None = None  # None=not owned; ()=explicit clear
+
+    def to_document(self) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "name": self.name,
+            "domain": self.domain,
+            "description": self.description,
+            "owners": [
+                {
+                    "id": owner.id,
+                    **({"description": owner.description} if owner.description is not None else {}),
+                }
+                for owner in self.owners
+            ],
+        }
+        if self.parent_id is not None:
+            properties["parentId"] = self.parent_id
+        if self.acronyms is not None:
+            properties["acronyms"] = list(self.acronyms)
+        return {
+            "id": self.id,
+            "properties": properties,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class DesiredStateV3:
     """Deterministic desired-state snapshot for Unified Catalog v3."""
 
     business_domains: tuple[BusinessDomainDesiredState, ...] = ()
     data_products: tuple[DataProductDesiredState, ...] = ()
+    glossary_terms: tuple[GlossaryTermDesiredState, ...] = ()
 
     def to_document(self) -> dict[str, Any]:
         doc: dict[str, Any] = {
@@ -105,4 +147,6 @@ class DesiredStateV3:
         }
         if self.data_products:
             doc["dataProducts"] = [item.to_document() for item in self.data_products]
+        if self.glossary_terms:
+            doc["glossaryTerms"] = [item.to_document() for item in self.glossary_terms]
         return doc

@@ -57,8 +57,21 @@ DATA_PRODUCT_REPLACE_REASON_CODES = frozenset(
     }
 )
 
+GLOSSARY_TERM_REPLACE_REASON_CODES = frozenset(
+    {
+        "properties.name.changed",
+        "properties.domain.changed",
+        "properties.description.changed",
+        "properties.owners.changed",
+        "properties.parentId.changed",
+        "properties.acronyms.changed",
+    }
+)
+
 MATERIAL_REPLACE_REASON_CODES = (
-    BUSINESS_DOMAIN_REPLACE_REASON_CODES | DATA_PRODUCT_REPLACE_REASON_CODES
+    BUSINESS_DOMAIN_REPLACE_REASON_CODES
+    | DATA_PRODUCT_REPLACE_REASON_CODES
+    | GLOSSARY_TERM_REPLACE_REASON_CODES
 )
 
 BLOCKING_REASON_CODES_V3 = frozenset(
@@ -72,6 +85,12 @@ BLOCKING_REASON_CODES_V3 = frozenset(
         "plan.domain_unresolved",
         "plan.domain_uninterpreted",
         "plan.remote_capture_incomplete",
+        "plan.glossary_term_domain_move_unverified",
+        "plan.glossary_term_parent_domain_mismatch",
+        "plan.glossary_term_parent_unresolved",
+        "plan.glossary_term_parent_uninterpreted",
+        "plan.glossary_term_parent_dependency_blocked",
+        "plan.glossary_term_hierarchy_cycle",
     }
 )
 
@@ -87,6 +106,12 @@ REASON_PATHS_V3: dict[str, str | None] = {
     "plan.domain_unresolved": "/properties/domain",
     "plan.domain_uninterpreted": "/properties/domain",
     "plan.remote_capture_incomplete": "/",
+    "plan.glossary_term_domain_move_unverified": "/properties/domain",
+    "plan.glossary_term_parent_domain_mismatch": "/properties/parentId",
+    "plan.glossary_term_parent_unresolved": "/properties/parentId",
+    "plan.glossary_term_parent_uninterpreted": "/properties/parentId",
+    "plan.glossary_term_parent_dependency_blocked": "/properties/parentId",
+    "plan.glossary_term_hierarchy_cycle": "/properties/parentId",
     "properties.name.changed": "/properties/name",
     "properties.description.changed": "/properties/description",
     "properties.parentId.changed": "/properties/parentId",
@@ -99,6 +124,7 @@ REASON_PATHS_V3: dict[str, str | None] = {
     "properties.audience.changed": "/properties/audience",
     "properties.updateFrequency.changed": "/properties/updateFrequency",
     "properties.endorsed.changed": "/properties/endorsed",
+    "properties.acronyms.changed": "/properties/acronyms",
 }
 
 NO_BEFORE_AFTER_CODES_V3 = frozenset(
@@ -112,6 +138,12 @@ NO_BEFORE_AFTER_CODES_V3 = frozenset(
         "plan.domain_unresolved",
         "plan.domain_uninterpreted",
         "plan.remote_capture_incomplete",
+        "plan.glossary_term_domain_move_unverified",
+        "plan.glossary_term_parent_domain_mismatch",
+        "plan.glossary_term_parent_unresolved",
+        "plan.glossary_term_parent_uninterpreted",
+        "plan.glossary_term_parent_dependency_blocked",
+        "plan.glossary_term_hierarchy_cycle",
     }
 )
 
@@ -368,6 +400,9 @@ def _desired_lookup(desired_state: dict[str, Any]) -> dict[tuple[str, str], dict
     for item in desired_state.get("dataProducts", []):
         if isinstance(item, dict) and isinstance(item.get("id"), str):
             lookup[("dataProduct", item["id"])] = item
+    for item in desired_state.get("glossaryTerms", []):
+        if isinstance(item, dict) and isinstance(item.get("id"), str):
+            lookup[("glossaryTerm", item["id"])] = item
     return lookup
 
 
@@ -473,6 +508,14 @@ def _bind_reason_after_to_desired_v3(
                     "endorsed reason after must equal desired endorsed",
                     path=reason_path,
                 )
+        elif code == "properties.acronyms.changed":
+            desired_acronyms = props.get("acronyms")
+            if reason_item.get("after") != dumps_canonical_value_scalar(desired_acronyms):
+                _raise_integrity(
+                    "plan.invalid_reason_outcome",
+                    "acronyms reason after must equal desired acronyms",
+                    path=reason_path,
+                )
 
 
 def dumps_canonical_value_scalar(value: object) -> str:
@@ -496,6 +539,8 @@ def _validate_outcome_reasons_v3(
     replace_codes = (
         BUSINESS_DOMAIN_REPLACE_REASON_CODES
         if resource_type == "businessDomain"
+        else GLOSSARY_TERM_REPLACE_REASON_CODES
+        if resource_type == "glossaryTerm"
         else DATA_PRODUCT_REPLACE_REASON_CODES
     )
 
@@ -730,10 +775,10 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
                 "plan.invalid_schema", "changeSet item must be an object", path=item_path
             )
         resource_type = item.get("type")
-        if resource_type not in {"businessDomain", "dataProduct"}:
+        if resource_type not in {"businessDomain", "dataProduct", "glossaryTerm"}:
             _raise_integrity(
                 "plan.invalid_schema",
-                "changeSet item type must be businessDomain or dataProduct",
+                "changeSet item type must be businessDomain, dataProduct, or glossaryTerm",
                 path=f"{item_path}/type",
             )
         item_id = item.get("id")
@@ -743,7 +788,8 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
                 "changeSet item id must be a valid UUID",
                 path=f"{item_path}/id",
             )
-        item_sort = (0 if resource_type == "businessDomain" else 1, str(item_id))
+        type_rank = {"businessDomain": 0, "dataProduct": 1, "glossaryTerm": 2}[str(resource_type)]
+        item_sort = (type_rank, str(item_id))
         if previous_item_sort is not None and item_sort < previous_item_sort:
             _raise_integrity(
                 "plan.noncanonical_input",
@@ -807,6 +853,7 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
     expected_ops: list[tuple[str, str, str]] = []
     bd_items = [item for item in change_items if item.get("type") == "businessDomain"]
     dp_items = [item for item in change_items if item.get("type") == "dataProduct"]
+    gt_items = [item for item in change_items if item.get("type") == "glossaryTerm"]
     create_ids = [item["id"] for item in bd_items if item["outcome"] == "create"]
     parent_by_id: dict[str, str | None] = {}
     for domain_id, raw in desired_lookup.items():
@@ -837,6 +884,25 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
     )
     for product_id in dp_replace_ids:
         expected_ops.append(("dataProduct", "replace", product_id))
+    parent_by_gt: dict[str, str | None] = {}
+    for term_key, raw in desired_lookup.items():
+        if term_key[0] != "glossaryTerm":
+            continue
+        parent_by_gt[term_key[1]] = raw["properties"].get("parentId")
+    gt_create_ids = [item["id"] for item in gt_items if item["outcome"] == "create"]
+    ordered_gt_creates = _topological_create_ids(gt_create_ids, parent_by_gt)
+    for term_id in ordered_gt_creates:
+        expected_ops.append(("glossaryTerm", "create", term_id))
+    gt_replace_ids = sorted(
+        item["id"]
+        for item in gt_items
+        if item["outcome"] == "replace"
+        and "remote.unsupported_configurable_field" not in _reason_codes(item["reasons"])
+        and "remote.status_blocks_replace" not in _reason_codes(item["reasons"])
+        and "plan.glossary_term_domain_move_unverified" not in _reason_codes(item["reasons"])
+    )
+    for term_id in gt_replace_ids:
+        expected_ops.append(("glossaryTerm", "replace", term_id))
 
     if len(operations) != len(expected_ops):
         _raise_integrity(
@@ -863,10 +929,10 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
                 "operation action must be create or replace",
                 path=op_path,
             )
-        if op_type not in {"businessDomain", "dataProduct"}:
+        if op_type not in {"businessDomain", "dataProduct", "glossaryTerm"}:
             _raise_integrity(
                 "plan.invalid_operation_mapping",
-                "operation type must be businessDomain or dataProduct",
+                "operation type must be businessDomain, dataProduct, or glossaryTerm",
                 path=op_path,
             )
         if normalize_uuid_string(op_id) is None:
@@ -875,13 +941,13 @@ def validate_plan_document_semantics_v3(document: dict[str, Any]) -> None:
                 "operation id must be a valid UUID",
                 path=f"{op_path}/id",
             )
-        type_order = 0 if op_type == "businessDomain" else 1
+        type_order = {"businessDomain": 0, "dataProduct": 1, "glossaryTerm": 2}[str(op_type)]
         action_order = 0 if action == "create" else 1
         op_sort = (type_order, action_order, str(op_id))
         if previous_op_sort is not None and op_sort < previous_op_sort:
             _raise_integrity(
                 "plan.noncanonical_input",
-                "operations must be ordered with business domains before data products",
+                "operations must be ordered by resource type, action, then id",
                 path=op_path,
             )
         previous_op_sort = op_sort

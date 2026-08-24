@@ -54,27 +54,39 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
 - production service endpoint documented by Microsoft:
   `https://api.purview-service.microsoft.com` (independent from Scanning
   `{account}.purview.azure.com` / API `2023-09-01`)
-- `PurviewUnifiedCatalogClient` with read-only `enumerate_business_domains()`
-  and opt-in `enumerate_data_products()` (PagedDomain / PagedDataProduct
-  pagination)
-- **Business Domains + Data Products** declarative config/remote/diff/plan via
+- `PurviewUnifiedCatalogClient` with read-only `enumerate_business_domains()`,
+  opt-in `enumerate_data_products()`, and opt-in `enumerate_glossary_terms()`
+  (PagedDomain / PagedDataProduct / PagedTerm pagination)
+- **Business Domains + Data Products + Glossary Terms** declarative config/remote/diff/plan via
   contract **v3** (`purview-governance-config/v3`, `purview-remote-state/v3`,
   `purview-governance-plan/v3`) — **planning-only**; no Unified Catalog apply in
   v1.2
 - default remote capture remains **Business Domain–only** (Shape A, PR2
   compatible); Data Product capture is **opt-in**
-  (`include_data_products=True`, Shape B)
+  (`include_data_products=True`, Shape B); Glossary Term capture is **opt-in**
+  (`include_glossary_terms=True`, Shape C); both together is Shape D
 - enumeration is **permission-scoped** — empty capture means zero visible items
   for the credentials used, not tenant-wide inventory
-- duplicate Data Product **names** are allowed; matching is UUID-only
+- duplicate Data Product and Glossary Term **names** are allowed; matching is UUID-only
+- Glossary Term **parentId full ownership**: absent/`None` in desired config means
+  explicit root intent and is always compared in diff (remote `parentId: null` is
+  fail-closed)
+- Glossary Term **acronyms three-state**: absent = not owned (no drift);
+  `[]` = explicit clear; values = owned set (remote `acronyms: null` is fail-closed)
+- Glossary Term hierarchy validation is scoped to each desired term's dependency
+  closure, not the global remote catalog
+- Glossary Term domain move is blocked (`plan.glossary_term_domain_move_unverified`)
+- future Unified Catalog apply CREATE for Glossary Terms will use REST `status: DRAFT`
+  (PR6; not in v1.2 planning)
 - `target.tenantId` is declared, not live-verified in v1.2
 - remote `status` and `systemData.provisioningState` are safety-only (no desired
   status; no publish/unpublish/expire automation)
 - deferred remote configurables (`managedAttributes`, `termsOfUse`, etc.) block
   unsafe replace to avoid clobber
 - domain move (`desired.domain != remote.domain`) is blocked by project
-  fail-closed policy (`plan.domain_move_unverified`)
-- **not** Glossary Terms / Data Assets / relationships as Code yet
+  fail-closed policy (`plan.domain_move_unverified` for Data Products;
+  `plan.glossary_term_domain_move_unverified` for Glossary Terms)
+- **not** Data Assets / relationships as Code yet
 - **not** live-tenant validation; contract-tested offline ≠ production Purview
   validation
 - `executionEligibility: ready` means no known v3 blockers — **not** a guarantee

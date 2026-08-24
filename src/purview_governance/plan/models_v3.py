@@ -17,7 +17,7 @@ from purview_governance.remote_state.canonical import dumps_canonical
 
 ExecutionEligibility = Literal["ready", "blocked"]
 PlanAction = Literal["create", "replace"]
-PlanResourceTypeV3 = Literal["businessDomain", "dataProduct"]
+PlanResourceTypeV3 = Literal["businessDomain", "dataProduct", "glossaryTerm"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +175,8 @@ def desired_state_v3_from_document(document: dict[str, Any]) -> DesiredStateV3:
         BusinessDomainDesiredState,
         DataProductDesiredState,
         DataProductOwnerDesiredState,
+        GlossaryTermDesiredState,
+        GlossaryTermOwnerDesiredState,
     )
 
     domains: list[BusinessDomainDesiredState] = []
@@ -219,16 +221,42 @@ def desired_state_v3_from_document(document: dict[str, Any]) -> DesiredStateV3:
             )
         )
 
+    terms: list[GlossaryTermDesiredState] = []
+    for raw in document.get("glossaryTerms", []):
+        props = raw["properties"]
+        owners = tuple(
+            GlossaryTermOwnerDesiredState(
+                id=owner["id"],
+                description=owner.get("description"),
+            )
+            for owner in props["owners"]
+        )
+        acronyms: tuple[str, ...] | None = None
+        if "acronyms" in props:
+            acronyms = tuple(props["acronyms"])
+        terms.append(
+            GlossaryTermDesiredState(
+                id=raw["id"],
+                name=props["name"],
+                domain=props["domain"],
+                description=props["description"],
+                owners=owners,
+                parent_id=props.get("parentId"),
+                acronyms=acronyms,
+            )
+        )
+
     return DesiredStateV3(
         business_domains=tuple(domains),
         data_products=tuple(products),
+        glossary_terms=tuple(terms),
     )
 
 
 def change_set_v3_from_document(document: dict[str, Any]) -> DiffDocument:
-    from purview_governance.diff.models_v3 import DiffDataProductItem
+    from purview_governance.diff.models_v3 import DiffDataProductItem, DiffGlossaryTermItem
 
-    items: list[DiffBusinessDomainItem | DiffDataProductItem] = []
+    items: list[DiffBusinessDomainItem | DiffDataProductItem | DiffGlossaryTermItem] = []
     for raw in document.get("items", []):
         reasons = tuple(
             DiffReason(
@@ -246,6 +274,15 @@ def change_set_v3_from_document(document: dict[str, Any]) -> DiffDocument:
                 DiffDataProductItem(
                     id=raw["id"],
                     resource_type="dataProduct",
+                    outcome=outcome,
+                    reasons=reasons,
+                )
+            )
+        elif resource_type == "glossaryTerm":
+            items.append(
+                DiffGlossaryTermItem(
+                    id=raw["id"],
+                    resource_type="glossaryTerm",
                     outcome=outcome,
                     reasons=reasons,
                 )

@@ -6,8 +6,13 @@ from typing import Any
 
 from purview_governance.desired.models_v3 import BusinessDomainDesiredState, DesiredStateV3
 from purview_governance.diff.data_product import diff_data_products
+from purview_governance.diff.glossary_term import diff_glossary_terms
 from purview_governance.diff.models import DiffDocument, DiffOutcome, DiffReason
-from purview_governance.diff.models_v3 import DiffBusinessDomainItem, DiffDataProductItem
+from purview_governance.diff.models_v3 import (
+    DiffBusinessDomainItem,
+    DiffDataProductItem,
+    DiffGlossaryTermItem,
+)
 from purview_governance.diff.reasons import reason, sort_reasons
 from purview_governance.remote_state.canonical import canonical_json_scalar
 from purview_governance.remote_state.models import UnsupportedConfigurableField
@@ -267,9 +272,14 @@ def _diff_business_domains_only(
 
 
 def _combined_sort_key(
-    item: DiffBusinessDomainItem | DiffDataProductItem,
+    item: DiffBusinessDomainItem | DiffDataProductItem | DiffGlossaryTermItem,
 ) -> tuple[int, str]:
-    type_rank = 0 if item.resource_type == "businessDomain" else 1
+    if item.resource_type == "businessDomain":
+        type_rank = 0
+    elif item.resource_type == "dataProduct":
+        type_rank = 1
+    else:
+        type_rank = 2
     return (type_rank, item.id)
 
 
@@ -280,5 +290,6 @@ def diff_desired_vs_remote_v3(
     """Compare desired Unified Catalog resources against remote-state/v3."""
     domain_items = _diff_business_domains_only(desired, remote)
     product_items = diff_data_products(desired, remote)
-    combined = tuple(sorted([*domain_items, *product_items], key=_combined_sort_key))
+    term_items = diff_glossary_terms(desired, remote)
+    combined = tuple(sorted([*domain_items, *product_items, *term_items], key=_combined_sort_key))
     return DiffDocument(items=combined)
