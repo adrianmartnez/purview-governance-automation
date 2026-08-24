@@ -10,10 +10,13 @@ from purview_governance.remote_state.canonical import (
     dumps_canonical,
 )
 from purview_governance.remote_state.data_product_policy import (
-    CAPTURED_RESOURCE_TYPE_BUSINESS_DOMAIN,
     CAPTURED_RESOURCE_TYPE_DATA_PRODUCT,
 )
 from purview_governance.remote_state.errors import RemoteStateError
+from purview_governance.remote_state.glossary_term_policy import (
+    CAPTURED_RESOURCE_TYPE_GLOSSARY_TERM,
+    VALID_CAPTURE_MARKERS,
+)
 from purview_governance.remote_state.models import UnsupportedConfigurableField
 
 REMOTE_STATE_API_VERSION_V3 = "purview-remote-state/v3"
@@ -112,6 +115,44 @@ class UninterpretedDataProduct:
 
 
 @dataclass(frozen=True, slots=True)
+class NormalizedGlossaryTerm:
+    """Normalized supported Glossary Term (no raw body)."""
+
+    id: str
+    properties: dict[str, Any]
+    safety_properties: dict[str, Any]
+    unsupported_configurable_fields: tuple[UnsupportedConfigurableField, ...] = ()
+
+    def to_document(self) -> dict[str, Any]:
+        doc: dict[str, Any] = {
+            "type": "glossaryTerm",
+            "id": self.id,
+            "properties": dict(self.properties),
+            "safetyProperties": dict(self.safety_properties),
+        }
+        if self.unsupported_configurable_fields:
+            doc["unsupportedConfigurableFields"] = [
+                item.to_document()
+                for item in sorted(self.unsupported_configurable_fields, key=lambda f: f.path)
+            ]
+        return doc
+
+
+@dataclass(frozen=True, slots=True)
+class UninterpretedGlossaryTerm:
+    """Accounted Glossary Term that cannot be safely normalized."""
+
+    reason_code: str
+    id: str | None = None
+
+    def to_document(self) -> dict[str, Any]:
+        doc: dict[str, Any] = {"reasonCode": self.reason_code}
+        if self.id is not None:
+            doc["id"] = self.id
+        return doc
+
+
+@dataclass(frozen=True, slots=True)
 class RemoteStateV3:
     """Versioned purview-remote-state/v3 artifact model."""
 
@@ -121,11 +162,17 @@ class RemoteStateV3:
     material_state_identity: str
     data_products: tuple[NormalizedDataProduct, ...] = ()
     uninterpreted_data_products: tuple[UninterpretedDataProduct, ...] = ()
+    glossary_terms: tuple[NormalizedGlossaryTerm, ...] = ()
+    uninterpreted_glossary_terms: tuple[UninterpretedGlossaryTerm, ...] = ()
     captured_resource_types: tuple[str, ...] = ()
 
     @property
     def includes_data_product_capture(self) -> bool:
         return CAPTURED_RESOURCE_TYPE_DATA_PRODUCT in self.captured_resource_types
+
+    @property
+    def includes_glossary_term_capture(self) -> bool:
+        return CAPTURED_RESOURCE_TYPE_GLOSSARY_TERM in self.captured_resource_types
 
     def identity_document(self) -> dict[str, Any]:
         """Document hashed for materialStateIdentity (excludes the identity field)."""
@@ -137,12 +184,18 @@ class RemoteStateV3:
                 item.to_document() for item in self.uninterpreted_business_domains
             ],
         }
-        if self.includes_data_product_capture:
+        if self.captured_resource_types:
             doc["capturedResourceTypes"] = list(self.captured_resource_types)
-            doc["dataProducts"] = [item.to_document() for item in self.data_products]
-            doc["uninterpretedDataProducts"] = [
-                item.to_document() for item in self.uninterpreted_data_products
-            ]
+            if self.includes_data_product_capture:
+                doc["dataProducts"] = [item.to_document() for item in self.data_products]
+                doc["uninterpretedDataProducts"] = [
+                    item.to_document() for item in self.uninterpreted_data_products
+                ]
+            if self.includes_glossary_term_capture:
+                doc["glossaryTerms"] = [item.to_document() for item in self.glossary_terms]
+                doc["uninterpretedGlossaryTerms"] = [
+                    item.to_document() for item in self.uninterpreted_glossary_terms
+                ]
         return doc
 
     def to_document(self) -> dict[str, Any]:
@@ -161,19 +214,16 @@ def build_remote_state_v3(
     *,
     data_products: tuple[NormalizedDataProduct, ...] = (),
     uninterpreted_data_products: tuple[UninterpretedDataProduct, ...] = (),
+    glossary_terms: tuple[NormalizedGlossaryTerm, ...] = (),
+    uninterpreted_glossary_terms: tuple[UninterpretedGlossaryTerm, ...] = (),
     captured_resource_types: tuple[str, ...] = (),
 ) -> RemoteStateV3:
     """Build RemoteStateV3 with deterministic identity from sorted inputs."""
-    if captured_resource_types:
-        expected = (
-            CAPTURED_RESOURCE_TYPE_BUSINESS_DOMAIN,
-            CAPTURED_RESOURCE_TYPE_DATA_PRODUCT,
+    if captured_resource_types and captured_resource_types not in VALID_CAPTURE_MARKERS:
+        raise RemoteStateError(
+            "remote_state.invalid_capture_marker",
+            "capturedResourceTypes is not a supported capture marker",
         )
-        if captured_resource_types != expected:
-            raise RemoteStateError(
-                "remote_state.invalid_capture_marker",
-                "capturedResourceTypes must be ['businessDomain', 'dataProduct'] when present",
-            )
 
     seen_bd: set[str] = set()
     for item in business_domains:
@@ -215,6 +265,26 @@ def build_remote_state_v3(
             )
         seen_dp.add(item.id)
 
+    seen_gt: set[str] = set()
+    for item in glossary_terms:
+        if item.id in seen_gt:
+            raise RemoteStateError(
+                "remote_state.duplicate_id",
+                "duplicate Glossary Term id in remote-state inputs",
+                path=f"/glossaryTerms/{item.id}",
+            )
+        seen_gt.add(item.id)
+    for item in uninterpreted_glossary_terms:
+        if item.id is None:
+            continue
+        if item.id in seen_gt:
+            raise RemoteStateError(
+                "remote_state.duplicate_id",
+                "duplicate Glossary Term id in remote-state inputs",
+                path=f"/uninterpretedGlossaryTerms/{item.id}",
+            )
+        seen_gt.add(item.id)
+
     sorted_domains = tuple(sorted(business_domains, key=lambda item: item.id))
     sorted_uninterpreted_bd = tuple(
         sorted(
@@ -229,7 +299,14 @@ def build_remote_state_v3(
             key=lambda item: (item.id is None, item.id or ""),
         )
     )
-    sorted_captured = tuple(sorted(captured_resource_types))
+    sorted_terms = tuple(sorted(glossary_terms, key=lambda item: item.id))
+    sorted_uninterpreted_gt = tuple(
+        sorted(
+            uninterpreted_glossary_terms,
+            key=lambda item: (item.id is None, item.id or ""),
+        )
+    )
+    sorted_captured = captured_resource_types
 
     provisional = RemoteStateV3(
         business_domains=sorted_domains,
@@ -238,6 +315,8 @@ def build_remote_state_v3(
         material_state_identity="",
         data_products=sorted_products,
         uninterpreted_data_products=sorted_uninterpreted_dp,
+        glossary_terms=sorted_terms,
+        uninterpreted_glossary_terms=sorted_uninterpreted_gt,
         captured_resource_types=sorted_captured,
     )
     identity = compute_material_state_identity(provisional.identity_document())
@@ -248,6 +327,8 @@ def build_remote_state_v3(
         material_state_identity=identity,
         data_products=sorted_products,
         uninterpreted_data_products=sorted_uninterpreted_dp,
+        glossary_terms=sorted_terms,
+        uninterpreted_glossary_terms=sorted_uninterpreted_gt,
         captured_resource_types=sorted_captured,
     )
 

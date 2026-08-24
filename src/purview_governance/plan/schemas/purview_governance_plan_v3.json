@@ -133,6 +133,22 @@
               }
             }
           }
+        },
+        "glossaryTerms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "properties"],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "properties": {
+                "$ref": "#/$defs/glossaryTermDesiredProperties"
+              }
+            }
+          }
         }
       }
     },
@@ -174,6 +190,25 @@
                   },
                   "type": {
                     "const": "dataProduct"
+                  },
+                  "outcome": {
+                    "$ref": "#/$defs/changeOutcome"
+                  },
+                  "reasons": {
+                    "$ref": "#/$defs/changeReasons"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "type", "outcome", "reasons"],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "type": {
+                    "const": "glossaryTerm"
                   },
                   "outcome": {
                     "$ref": "#/$defs/changeOutcome"
@@ -227,6 +262,26 @@
               },
               "type": {
                 "const": "dataProduct"
+              },
+              "id": {
+                "$ref": "#/$defs/uuid"
+              },
+              "action": {
+                "$ref": "#/$defs/operationAction"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sequence", "type", "id", "action"],
+            "properties": {
+              "sequence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "type": {
+                "const": "glossaryTerm"
               },
               "id": {
                 "$ref": "#/$defs/uuid"
@@ -386,6 +441,55 @@
         },
         "endorsed": {
           "type": "boolean"
+        }
+      }
+    },
+    "glossaryTermOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "glossaryTermDesiredProperties": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "domain", "description", "owners"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "$ref": "#/$defs/uuid"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10000
+        },
+        "owners": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/glossaryTermOwner"
+          }
+        },
+        "parentId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "acronyms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },

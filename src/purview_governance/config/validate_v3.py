@@ -209,6 +209,14 @@ def _data_product_resources(resources: list[Any]) -> list[tuple[int, dict[str, A
     return items
 
 
+def _glossary_term_resources(resources: list[Any]) -> list[tuple[int, dict[str, Any]]]:
+    items: list[tuple[int, dict[str, Any]]] = []
+    for index, item in enumerate(resources):
+        if isinstance(item, dict) and item.get("type") == "glossaryTerm":
+            items.append((index, item))
+    return items
+
+
 def _business_domain_count_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     resources = document.get("resources")
     if not isinstance(resources, list):
@@ -311,6 +319,122 @@ def _duplicate_data_product_diagnostics(document: dict[str, Any]) -> list[Config
     return diagnostics
 
 
+def _duplicate_glossary_term_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
+    resources = document.get("resources")
+    if not isinstance(resources, list):
+        return []
+
+    seen_ids: dict[str, int] = {}
+    diagnostics: list[ConfigDiagnostic] = []
+
+    for index, item in _glossary_term_resources(resources):
+        resource_id = item.get("id")
+        if not isinstance(resource_id, str):
+            continue
+        normalized_id = normalize_uuid_string(resource_id)
+        if normalized_id is None:
+            continue
+        if normalized_id in seen_ids:
+            diagnostics.append(
+                ConfigDiagnostic(
+                    code="config.duplicate_glossary_term_id",
+                    path=json_pointer("resources", index, "id"),
+                    message=(
+                        f"duplicate Glossary Term id {normalized_id!r}; "
+                        f"first seen at /resources/{seen_ids[normalized_id]}/id"
+                    ),
+                )
+            )
+        else:
+            seen_ids[normalized_id] = index
+
+    return diagnostics
+
+
+def _glossary_term_hierarchy_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
+    resources = document.get("resources")
+    if not isinstance(resources, list):
+        return []
+
+    entries: list[tuple[int, str, str | None, str]] = []
+    domain_by_id: dict[str, str] = {}
+    for index, item in _glossary_term_resources(resources):
+        resource_id = normalize_uuid_string(item.get("id"))
+        if resource_id is None:
+            continue
+        props = item.get("properties")
+        if not isinstance(props, dict):
+            continue
+        domain_id = normalize_uuid_string(props.get("domain"))
+        if domain_id is None:
+            continue
+        domain_by_id[resource_id] = domain_id
+        parent_id: str | None = None
+        if "parentId" in props:
+            parent_id = normalize_uuid_string(props.get("parentId"))
+        entries.append((index, resource_id, parent_id, domain_id))
+
+    known_ids = {resource_id for _, resource_id, _, _ in entries}
+    parent_by_id: dict[str, str | None] = {
+        resource_id: parent_id for _, resource_id, parent_id, _ in entries
+    }
+
+    diagnostics: list[ConfigDiagnostic] = []
+
+    for index, resource_id, parent_id, domain_id in entries:
+        if parent_id is None:
+            continue
+        if parent_id == resource_id:
+            diagnostics.append(
+                ConfigDiagnostic(
+                    code="config.self_parent",
+                    path=json_pointer("resources", index, "properties", "parentId"),
+                    message=(f"Glossary Term {resource_id!r} cannot be its own parent"),
+                )
+            )
+            continue
+        if parent_id in known_ids and parent_id in domain_by_id:
+            parent_domain = domain_by_id[parent_id]
+            if parent_domain != domain_id:
+                diagnostics.append(
+                    ConfigDiagnostic(
+                        code="config.parent_domain_mismatch",
+                        path=json_pointer("resources", index, "properties", "parentId"),
+                        message=(
+                            f"Glossary Term {resource_id!r} domain {domain_id!r} "
+                            f"must match parent {parent_id!r} domain {parent_domain!r}"
+                        ),
+                    )
+                )
+
+    for index, resource_id, _, _ in entries:
+        visited: set[str] = set()
+        current: str | None = resource_id
+        cycle_detected = False
+        while current is not None:
+            if current in visited:
+                cycle_detected = True
+                break
+            visited.add(current)
+            parent = parent_by_id.get(current)
+            if parent is None:
+                break
+            if parent not in known_ids:
+                break
+            current = parent
+
+        if cycle_detected:
+            diagnostics.append(
+                ConfigDiagnostic(
+                    code="config.hierarchy_cycle",
+                    path=json_pointer("resources", index, "properties", "parentId"),
+                    message=(f"Glossary Term hierarchy contains a cycle involving {resource_id!r}"),
+                )
+            )
+
+    return diagnostics
+
+
 def _hierarchy_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     resources = document.get("resources")
     if not isinstance(resources, list):
@@ -396,7 +520,9 @@ def _semantic_diagnostics(document: dict[str, Any]) -> list[ConfigDiagnostic]:
     diagnostics.extend(_business_domain_count_diagnostics(document))
     diagnostics.extend(_duplicate_business_domain_diagnostics(document))
     diagnostics.extend(_duplicate_data_product_diagnostics(document))
+    diagnostics.extend(_duplicate_glossary_term_diagnostics(document))
     diagnostics.extend(_hierarchy_diagnostics(document))
+    diagnostics.extend(_glossary_term_hierarchy_diagnostics(document))
     return diagnostics
 
 

@@ -42,3 +42,21 @@ class DiffDataProductItem:
             "outcome": self.outcome,
             "reasons": [reason.to_document() for reason in self.reasons],
         }
+
+
+@dataclass(frozen=True, slots=True)
+class DiffGlossaryTermItem:
+    """Change-set item for a Glossary Term (UUID-keyed)."""
+
+    id: str
+    resource_type: Literal["glossaryTerm"]
+    outcome: DiffOutcome
+    reasons: tuple[DiffReason, ...]
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "type": self.resource_type,
+            "outcome": self.outcome,
+            "reasons": [reason.to_document() for reason in self.reasons],
+        }

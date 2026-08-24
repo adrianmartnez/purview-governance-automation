@@ -5,6 +5,7 @@ from __future__ import annotations
 from purview_governance.config.models_v3 import (
     BusinessDomainResourceConfig,
     DataProductResourceConfig,
+    GlossaryTermResourceConfig,
     GovernanceConfigV3,
 )
 from purview_governance.desired.models_v3 import (
@@ -12,6 +13,8 @@ from purview_governance.desired.models_v3 import (
     DataProductDesiredState,
     DataProductOwnerDesiredState,
     DesiredStateV3,
+    GlossaryTermDesiredState,
+    GlossaryTermOwnerDesiredState,
 )
 
 
@@ -19,6 +22,7 @@ def desired_state_from_config_v3(config: GovernanceConfigV3) -> DesiredStateV3:
     """Map normalized governance config v3 to comparison desired state."""
     domains: list[BusinessDomainDesiredState] = []
     products: list[DataProductDesiredState] = []
+    terms: list[GlossaryTermDesiredState] = []
 
     for resource in config.resources:
         if isinstance(resource, BusinessDomainResourceConfig):
@@ -54,8 +58,27 @@ def desired_state_from_config_v3(config: GovernanceConfigV3) -> DesiredStateV3:
                     endorsed=resource.endorsed,
                 )
             )
+        elif isinstance(resource, GlossaryTermResourceConfig):
+            terms.append(
+                GlossaryTermDesiredState(
+                    id=resource.id,
+                    name=resource.name,
+                    domain=resource.domain,
+                    description=resource.description,
+                    owners=tuple(
+                        GlossaryTermOwnerDesiredState(
+                            id=owner.id,
+                            description=owner.description,
+                        )
+                        for owner in resource.owners
+                    ),
+                    parent_id=resource.parent_id,
+                    acronyms=resource.acronyms,
+                )
+            )
 
     return DesiredStateV3(
         business_domains=tuple(sorted(domains, key=lambda item: item.id)),
         data_products=tuple(sorted(products, key=lambda item: item.id)),
+        glossary_terms=tuple(sorted(terms, key=lambda item: item.id)),
     )

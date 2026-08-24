@@ -16,8 +16,13 @@ from purview_governance.desired.mapping_v3 import desired_state_from_config_v3
 from purview_governance.desired.models_v3 import DataProductDesiredState
 from purview_governance.diff.business_domain import diff_desired_vs_remote_v3
 from purview_governance.diff.models import DiffDocument
-from purview_governance.diff.models_v3 import DiffBusinessDomainItem, DiffDataProductItem
+from purview_governance.diff.models_v3 import (
+    DiffBusinessDomainItem,
+    DiffDataProductItem,
+    DiffGlossaryTermItem,
+)
 from purview_governance.plan.errors import PlanBuildError, PlanError
+from purview_governance.plan.glossary_term_v3 import enforce_glossary_term_dependencies
 from purview_governance.plan.identity import (
     CONFIGURATION_API_VERSION_V3,
     compute_desired_state_identity,
@@ -65,6 +70,20 @@ def _business_domain_items(change_set) -> list[DiffBusinessDomainItem]:
 
 def _data_product_items(change_set) -> list[DiffDataProductItem]:
     return [item for item in change_set.items if isinstance(item, DiffDataProductItem)]
+
+
+def _glossary_term_items(change_set) -> list[DiffGlossaryTermItem]:
+    return [item for item in change_set.items if isinstance(item, DiffGlossaryTermItem)]
+
+
+def _change_set_sort_key(item) -> tuple[int, str]:
+    if item.resource_type == "businessDomain":
+        rank = 0
+    elif item.resource_type == "dataProduct":
+        rank = 1
+    else:
+        rank = 2
+    return (rank, item.id)
 
 
 def _topological_create_order(
@@ -275,11 +294,28 @@ def _enforce_data_product_domain_dependencies(
     return updated
 
 
-def _remote_capture_incomplete(config: GovernanceConfigV3, remote: RemoteStateV3) -> bool:
+def _remote_data_product_capture_incomplete(
+    config: GovernanceConfigV3, remote: RemoteStateV3
+) -> bool:
     from purview_governance.config.models_v3 import DataProductResourceConfig
 
     has_dp_config = any(isinstance(r, DataProductResourceConfig) for r in config.resources)
     return has_dp_config and not remote.includes_data_product_capture
+
+
+def _remote_glossary_term_capture_incomplete(
+    config: GovernanceConfigV3, remote: RemoteStateV3
+) -> bool:
+    from purview_governance.config.models_v3 import GlossaryTermResourceConfig
+
+    has_gt_config = any(isinstance(r, GlossaryTermResourceConfig) for r in config.resources)
+    return has_gt_config and not remote.includes_glossary_term_capture
+
+
+def _remote_capture_incomplete(config: GovernanceConfigV3, remote: RemoteStateV3) -> bool:
+    return _remote_data_product_capture_incomplete(
+        config, remote
+    ) or _remote_glossary_term_capture_incomplete(config, remote)
 
 
 def _mark_remote_capture_incomplete(items: list[DiffDataProductItem]) -> list[DiffDataProductItem]:
@@ -294,6 +330,29 @@ def _mark_remote_capture_incomplete(items: list[DiffDataProductItem]) -> list[Di
                 DiffDataProductItem(
                     id=item.id,
                     resource_type="dataProduct",
+                    outcome="blocked",
+                    reasons=sort_reasons(reasons),
+                )
+            )
+        else:
+            updated.append(item)
+    return updated
+
+
+def _mark_glossary_remote_capture_incomplete(
+    items: list[DiffGlossaryTermItem],
+) -> list[DiffGlossaryTermItem]:
+    from purview_governance.diff.reasons import reason, sort_reasons
+
+    updated: list[DiffGlossaryTermItem] = []
+    for item in items:
+        if item.outcome in {"create", "replace"}:
+            reasons = list(item.reasons)
+            reasons.append(reason("plan.remote_capture_incomplete", "/"))
+            updated.append(
+                DiffGlossaryTermItem(
+                    id=item.id,
+                    resource_type="glossaryTerm",
                     outcome="blocked",
                     reasons=sort_reasons(reasons),
                 )
@@ -326,10 +385,17 @@ def build_governance_plan_v3(
     desired = desired_state_from_config_v3(config)
     change_set = diff_desired_vs_remote_v3(desired, remote)
 
-    if _remote_capture_incomplete(config, remote):
+    if _remote_data_product_capture_incomplete(config, remote):
         dp_items = _mark_remote_capture_incomplete(_data_product_items(change_set))
         bd_items = _business_domain_items(change_set)
-        change_set = DiffDocument(items=tuple([*bd_items, *dp_items]))
+        gt_items = _glossary_term_items(change_set)
+        change_set = DiffDocument(items=tuple([*bd_items, *dp_items, *gt_items]))
+
+    if _remote_glossary_term_capture_incomplete(config, remote):
+        gt_items = _mark_glossary_remote_capture_incomplete(_glossary_term_items(change_set))
+        bd_items = _business_domain_items(change_set)
+        dp_items = _data_product_items(change_set)
+        change_set = DiffDocument(items=tuple([*bd_items, *dp_items, *gt_items]))
 
     desired_domain_ids = _desired_domain_ids(config)
     dp_items = _enforce_data_product_domain_dependencies(
@@ -339,14 +405,17 @@ def build_governance_plan_v3(
         change_set=change_set,
         desired_domain_ids=desired_domain_ids,
     )
+    gt_items = enforce_glossary_term_dependencies(
+        _glossary_term_items(change_set),
+        desired_terms=desired.glossary_terms,
+        remote=remote,
+        change_set=change_set,
+        desired_domain_ids=desired_domain_ids,
+        resolve_domain=_resolve_domain,
+    )
     bd_items = _business_domain_items(change_set)
     change_set = DiffDocument(
-        items=tuple(
-            sorted(
-                [*bd_items, *dp_items],
-                key=lambda item: (0 if item.resource_type == "businessDomain" else 1, item.id),
-            )
-        )
+        items=tuple(sorted([*bd_items, *dp_items, *gt_items], key=_change_set_sort_key))
     )
 
     normalized_endpoint = remote.target_context.endpoint
@@ -365,6 +434,7 @@ def build_governance_plan_v3(
     counts = _summarize_change_set(change_set)
     bd_change_items = _business_domain_items(change_set)
     dp_change_items = _data_product_items(change_set)
+    gt_change_items = _glossary_term_items(change_set)
 
     parent_by_desired = {domain.id: domain.parent_id for domain in desired.business_domains}
     desired_ids = set(parent_by_desired.keys())
@@ -445,6 +515,43 @@ def build_governance_plan_v3(
                 sequence=sequence,
                 resource_type="dataProduct",
                 id=product_id,
+                action="replace",
+            )
+        )
+        sequence += 1
+
+    parent_by_desired_gt = {term.id: term.parent_id for term in desired.glossary_terms}
+    desired_gt_ids = set(parent_by_desired_gt.keys())
+    gt_create_ids = [item.id for item in gt_change_items if item.outcome == "create"]
+    gt_replace_ids = sorted(item.id for item in gt_change_items if item.outcome == "replace")
+    ordered_gt_creates = _topological_create_order(
+        desired_gt_ids, parent_by_desired_gt, gt_create_ids
+    )
+    for term_id in ordered_gt_creates:
+        operations_list.append(
+            PlanOperationV3(
+                sequence=sequence,
+                resource_type="glossaryTerm",
+                id=term_id,
+                action="create",
+            )
+        )
+        sequence += 1
+    for term_id in gt_replace_ids:
+        item = next(item for item in gt_change_items if item.id == term_id)
+        if any(reason.code == "remote.unsupported_configurable_field" for reason in item.reasons):
+            continue
+        if any(reason.code == "remote.status_blocks_replace" for reason in item.reasons):
+            continue
+        if any(
+            reason.code == "plan.glossary_term_domain_move_unverified" for reason in item.reasons
+        ):
+            continue
+        operations_list.append(
+            PlanOperationV3(
+                sequence=sequence,
+                resource_type="glossaryTerm",
+                id=term_id,
                 action="replace",
             )
         )

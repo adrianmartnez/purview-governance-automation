@@ -15,6 +15,7 @@ from purview_governance.unified_catalog.constants import (
     BUSINESS_DOMAINS_PATH,
     DATA_PRODUCTS_PATH,
     DEFAULT_TIMEOUT,
+    GLOSSARY_TERMS_PATH,
     MAX_LIST_PAGES,
     UNIFIED_CATALOG_API_VERSION,
     UNIFIED_CATALOG_PRODUCTION_ENDPOINT,
@@ -49,6 +50,17 @@ class BusinessDomainListResult:
 @dataclass(frozen=True, slots=True)
 class DataProductListResult:
     """Aggregated Data Product enumerate snapshot (defensive copies of ``value`` items)."""
+
+    items: tuple[dict[str, Any], ...]
+
+    @property
+    def item_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class GlossaryTermListResult:
+    """Aggregated Glossary Term enumerate snapshot (defensive copies of ``value`` items)."""
 
     items: tuple[dict[str, Any], ...]
 
@@ -143,6 +155,41 @@ def _validate_paged_data_product_page(
             raise UnifiedCatalogResponseError(
                 "unified_catalog.invalid_response_contract",
                 "PagedDataProduct nextLink must be a non-empty string when present",
+            )
+        next_link = raw.strip()
+    return items, next_link
+
+
+def _validate_paged_term_page(
+    data: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str | None]:
+    if "value" not in data:
+        raise UnifiedCatalogResponseError(
+            "unified_catalog.invalid_response_contract",
+            "PagedTerm response must include a value array",
+        )
+    value = data["value"]
+    if not isinstance(value, list):
+        raise UnifiedCatalogResponseError(
+            "unified_catalog.invalid_response_contract",
+            "PagedTerm value must be an array",
+        )
+    items: list[dict[str, Any]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_response_contract",
+                "PagedTerm value entries must be JSON objects",
+            )
+        items.append(_defensive_snapshot(entry))
+
+    next_link: str | None = None
+    if "nextLink" in data and data["nextLink"] is not None:
+        raw = data["nextLink"]
+        if not isinstance(raw, str) or not raw.strip():
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_response_contract",
+                "PagedTerm nextLink must be a non-empty string when present",
             )
         next_link = raw.strip()
     return items, next_link
@@ -255,6 +302,10 @@ class PurviewUnifiedCatalogClient:
     def _data_products_url(self) -> str:
         query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
         return f"{self._base_url}{DATA_PRODUCTS_PATH}?{query}"
+
+    def _glossary_terms_url(self) -> str:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        return f"{self._base_url}{GLOSSARY_TERMS_PATH}?{query}"
 
     def _safe_path(self, url: str) -> str:
         parts = urlsplit(url)
@@ -413,3 +464,55 @@ class PurviewUnifiedCatalogClient:
     def enumerate_data_products(self) -> DataProductListResult:
         """Enumerate Data Products (PagedDataProduct), following same-origin ``nextLink`` values."""
         return DataProductListResult(items=self._enumerate_data_products_paginated())
+
+    def _enumerate_glossary_terms_paginated(self) -> tuple[dict[str, Any], ...]:
+        url = self._glossary_terms_url()
+        aggregated: list[dict[str, Any]] = []
+        seen_links: set[str] = set()
+        pages = 0
+
+        while True:
+            pages += 1
+            if pages > MAX_LIST_PAGES:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_limit_exceeded",
+                    "glossary term pagination exceeded the maximum number of pages",
+                )
+
+            headers = {
+                "Authorization": self._authorization_header(),
+                "Accept": "application/json",
+            }
+            response = self._send(
+                "GET",
+                url,
+                operation="enumerate_glossary_terms",
+                headers=headers,
+            )
+            if response.status_code != 200:
+                self._raise_http_error(
+                    response,
+                    operation="enumerate_glossary_terms",
+                    method="GET",
+                    url=url,
+                )
+
+            data = _parse_json_object(response, operation="enumerate_glossary_terms")
+            items, next_link = _validate_paged_term_page(data)
+            aggregated.extend(items)
+
+            if next_link is None:
+                break
+            if next_link in seen_links:
+                raise UnifiedCatalogPaginationError(
+                    "unified_catalog.pagination_loop",
+                    "glossary term pagination encountered a repeated nextLink",
+                )
+            seen_links.add(next_link)
+            url = validate_absolute_same_origin_next_link(next_link, self._origin)
+
+        return tuple(aggregated)
+
+    def enumerate_glossary_terms(self) -> GlossaryTermListResult:
+        """Enumerate Glossary Terms (PagedTerm), following same-origin ``nextLink`` values."""
+        return GlossaryTermListResult(items=self._enumerate_glossary_terms_paginated())

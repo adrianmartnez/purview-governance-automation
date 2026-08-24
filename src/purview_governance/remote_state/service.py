@@ -25,6 +25,12 @@ from purview_governance.remote_state.data_product_policy import (
     CAPTURED_RESOURCE_TYPE_DATA_PRODUCT,
 )
 from purview_governance.remote_state.errors import RemoteStateError
+from purview_governance.remote_state.glossary_term_normalize import (
+    normalize_glossary_term,
+)
+from purview_governance.remote_state.glossary_term_policy import (
+    CAPTURED_RESOURCE_TYPE_GLOSSARY_TERM,
+)
 from purview_governance.remote_state.models import (
     NormalizedClassificationRule,
     NormalizedDataSource,
@@ -42,10 +48,12 @@ from purview_governance.remote_state.models import (
 from purview_governance.remote_state.models_v3 import (
     NormalizedBusinessDomain,
     NormalizedDataProduct,
+    NormalizedGlossaryTerm,
     RemoteStateV3,
     RemoteTargetContextV3,
     UninterpretedBusinessDomain,
     UninterpretedDataProduct,
+    UninterpretedGlossaryTerm,
     build_remote_state_v3,
 )
 from purview_governance.remote_state.normalize import (
@@ -85,6 +93,7 @@ from purview_governance.scanning.names import (
 from purview_governance.unified_catalog.client import (
     BusinessDomainListResult,
     DataProductListResult,
+    GlossaryTermListResult,
 )
 from purview_governance.uuid_utils import require_uuid_string
 
@@ -130,6 +139,12 @@ class UnifiedCatalogDataProductReadClient(UnifiedCatalogReadClient, Protocol):
     """Read-only seam extending v3 capture with Data Products enumerate."""
 
     def enumerate_data_products(self) -> DataProductListResult: ...
+
+
+class UnifiedCatalogGlossaryTermReadClient(UnifiedCatalogReadClient, Protocol):
+    """Read-only seam extending v3 capture with Glossary Terms enumerate."""
+
+    def enumerate_glossary_terms(self) -> GlossaryTermListResult: ...
 
 
 def _validate_artifact(document: dict[str, Any], *, schema: dict[str, Any]) -> None:
@@ -509,20 +524,19 @@ def capture_unified_catalog_remote_state_v3(
     *,
     tenant_id: str,
     include_data_products: bool = False,
+    include_glossary_terms: bool = False,
 ) -> RemoteStateV3:
     """Capture purview-remote-state/v3 via Business Domains enumerate.
 
     Read-only: never calls create / update / delete.
     ``tenant_id`` is declared target binding (not observed from enumerate).
 
-    When ``include_data_products`` is False (default), emits Shape A (PR2
-    compatible): Business Domains only, without ``capturedResourceTypes`` or
-    Data Product fields.
+    When both ``include_data_products`` and ``include_glossary_terms`` are False
+    (default), emits Shape A (PR2 compatible): Business Domains only.
 
-    When ``include_data_products`` is True, the client must implement
-    ``enumerate_data_products``. Enumeration failures fail closed. Emits Shape B
-    with ``capturedResourceTypes`` ``['businessDomain', 'dataProduct']`` and
-    required ``dataProducts`` / ``uninterpretedDataProducts`` arrays.
+    Shape B: ``include_data_products=True`` only.
+    Shape C: ``include_glossary_terms=True`` only.
+    Shape D: both flags True.
     """
     from purview_governance.plan.identity import compute_target_context_identity_v3
 
@@ -559,6 +573,8 @@ def capture_unified_catalog_remote_state_v3(
 
     data_products: tuple[NormalizedDataProduct, ...] = ()
     uninterpreted_data_products: tuple[UninterpretedDataProduct, ...] = ()
+    glossary_terms: tuple[NormalizedGlossaryTerm, ...] = ()
+    uninterpreted_glossary_terms: tuple[UninterpretedGlossaryTerm, ...] = ()
     captured_resource_types: tuple[str, ...] = ()
 
     if include_data_products:
@@ -585,10 +601,40 @@ def capture_unified_catalog_remote_state_v3(
                 normalized_products.append(result)
         data_products = tuple(normalized_products)
         uninterpreted_data_products = tuple(uninterpreted_products)
-        captured_resource_types = (
-            CAPTURED_RESOURCE_TYPE_BUSINESS_DOMAIN,
-            CAPTURED_RESOURCE_TYPE_DATA_PRODUCT,
-        )
+
+    if include_glossary_terms:
+        enumerate_glossary_terms = getattr(client, "enumerate_glossary_terms", None)
+        if enumerate_glossary_terms is None:
+            raise RemoteStateError(
+                "remote_state.missing_capability",
+                "client must implement enumerate_glossary_terms when "
+                "include_glossary_terms is True",
+            )
+        listed_terms = enumerate_glossary_terms()
+        normalized_terms: list[NormalizedGlossaryTerm] = []
+        uninterpreted_terms: list[UninterpretedGlossaryTerm] = []
+        for index, item in enumerate(listed_terms.items):
+            if not isinstance(item, dict):
+                raise RemoteStateError(
+                    "remote_state.invalid_shape",
+                    "enumerate item must be a JSON object",
+                    path=f"/value/{index}",
+                )
+            result = normalize_glossary_term(item)
+            if isinstance(result, UninterpretedGlossaryTerm):
+                uninterpreted_terms.append(result)
+            else:
+                normalized_terms.append(result)
+        glossary_terms = tuple(normalized_terms)
+        uninterpreted_glossary_terms = tuple(uninterpreted_terms)
+
+    if include_data_products or include_glossary_terms:
+        marker: list[str] = [CAPTURED_RESOURCE_TYPE_BUSINESS_DOMAIN]
+        if include_data_products:
+            marker.append(CAPTURED_RESOURCE_TYPE_DATA_PRODUCT)
+        if include_glossary_terms:
+            marker.append(CAPTURED_RESOURCE_TYPE_GLOSSARY_TERM)
+        captured_resource_types = tuple(marker)
 
     state = build_remote_state_v3(
         tuple(normalized),
@@ -596,6 +642,8 @@ def capture_unified_catalog_remote_state_v3(
         target_context,
         data_products=data_products,
         uninterpreted_data_products=uninterpreted_data_products,
+        glossary_terms=glossary_terms,
+        uninterpreted_glossary_terms=uninterpreted_glossary_terms,
         captured_resource_types=captured_resource_types,
     )
     try:

@@ -99,14 +99,39 @@
       }
     },
     "capturedResourceTypes": {
-      "type": "array",
-      "minItems": 2,
-      "maxItems": 2,
-      "prefixItems": [
-        { "const": "businessDomain" },
-        { "const": "dataProduct" }
-      ],
-      "items": false
+      "oneOf": [
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "const": "businessDomain" },
+            { "const": "dataProduct" }
+          ],
+          "items": false
+        },
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "const": "businessDomain" },
+            { "const": "glossaryTerm" }
+          ],
+          "items": false
+        },
+        {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "const": "businessDomain" },
+            { "const": "dataProduct" },
+            { "const": "glossaryTerm" }
+          ],
+          "items": false
+        }
+      ]
     },
     "dataProducts": {
       "type": "array",
@@ -120,6 +145,18 @@
         "$ref": "#/$defs/uninterpretedDataProduct"
       }
     },
+    "glossaryTerms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/normalizedGlossaryTerm"
+      }
+    },
+    "uninterpretedGlossaryTerms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/uninterpretedGlossaryTerm"
+      }
+    },
     "materialStateIdentity": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -131,25 +168,58 @@
         "required": ["capturedResourceTypes"]
       },
       "then": {
-        "required": ["dataProducts", "uninterpretedDataProducts"]
+        "oneOf": [
+          {
+            "properties": {
+              "capturedResourceTypes": {
+                "prefixItems": [
+                  { "const": "businessDomain" },
+                  { "const": "dataProduct" }
+                ]
+              }
+            },
+            "required": ["dataProducts", "uninterpretedDataProducts"],
+            "not": { "required": ["glossaryTerms"] }
+          },
+          {
+            "properties": {
+              "capturedResourceTypes": {
+                "prefixItems": [
+                  { "const": "businessDomain" },
+                  { "const": "glossaryTerm" }
+                ]
+              }
+            },
+            "required": ["glossaryTerms", "uninterpretedGlossaryTerms"],
+            "not": { "required": ["dataProducts"] }
+          },
+          {
+            "properties": {
+              "capturedResourceTypes": {
+                "prefixItems": [
+                  { "const": "businessDomain" },
+                  { "const": "dataProduct" },
+                  { "const": "glossaryTerm" }
+                ]
+              }
+            },
+            "required": [
+              "dataProducts",
+              "uninterpretedDataProducts",
+              "glossaryTerms",
+              "uninterpretedGlossaryTerms"
+            ]
+          }
+        ]
       },
       "else": {
         "properties": {
           "capturedResourceTypes": false,
           "dataProducts": false,
-          "uninterpretedDataProducts": false
+          "uninterpretedDataProducts": false,
+          "glossaryTerms": false,
+          "uninterpretedGlossaryTerms": false
         }
-      }
-    },
-    {
-      "if": {
-        "anyOf": [
-          { "required": ["dataProducts"] },
-          { "required": ["uninterpretedDataProducts"] }
-        ]
-      },
-      "then": {
-        "required": ["capturedResourceTypes", "dataProducts", "uninterpretedDataProducts"]
       }
     }
   ],
@@ -311,6 +381,86 @@
             },
             "endorsed": {
               "type": "boolean"
+            }
+          }
+        },
+        "safetyProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["DRAFT", "PUBLISHED", "EXPIRED"]
+            },
+            "provisioningState": {
+              "type": "string",
+              "enum": ["Unknown", "Succeeded", "SoftDeleted"]
+            }
+          }
+        },
+        "unsupportedConfigurableFields": {
+          "$ref": "#/$defs/unsupportedConfigurableFields"
+        }
+      }
+    },
+    "uninterpretedGlossaryTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "reasonCode": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "normalizedGlossaryTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "properties", "safetyProperties"],
+      "properties": {
+        "type": {
+          "const": "glossaryTerm"
+        },
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "domain", "description"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "domain": {
+              "$ref": "#/$defs/uuid"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10000
+            },
+            "owners": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/dataProductOwner"
+              }
+            },
+            "parentId": {
+              "$ref": "#/$defs/uuid"
+            },
+            "acronyms": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         },

@@ -13,6 +13,17 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Added
 
+- Glossary Terms declarative modeling in contract **v3** (planning-only; no apply):
+  config desired state, opt-in remote capture (Shapes C/D), diff, and plan with
+  domain/parent dependency resolution, scoped hierarchy validation, and
+  deterministic operation ordering after Business Domains and Data Products.
+- `enumerate_glossary_terms()` on `PurviewUnifiedCatalogClient`.
+- Opt-in remote capture `include_glossary_terms=True` (Shape C); Shape D when
+  combined with `include_data_products=True`; default capture remains Shape A.
+- Glossary Term policy: **parentId full ownership** (absent = root intent),
+  **acronyms three-state** optional explicit ownership, remote `null` fail-closed,
+  duplicate names allowed (UUID-only matching), domain move blocked, deferred
+  configurables safety, status safety-only.
 - Data Products declarative modeling in contract **v3** (planning-only; no apply):
   config desired state, opt-in remote capture (Shape B), diff, and plan with
   domain dependency resolution and deterministic operation ordering.

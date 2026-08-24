@@ -175,7 +175,55 @@ class DataProductResourceConfig:
         }
 
 
-ResourceConfigV3 = BusinessDomainResourceConfig | DataProductResourceConfig
+@dataclass(frozen=True, slots=True)
+class GlossaryTermOwnerConfig:
+    id: str
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GlossaryTermResourceConfig:
+    """Desired Glossary Term resource (config/v3)."""
+
+    id: str
+    name: str
+    domain: str
+    description: str
+    owners: tuple[GlossaryTermOwnerConfig, ...]
+    parent_id: str | None = None
+    acronyms: tuple[str, ...] | None = None
+
+    @property
+    def resource_type(self) -> Literal["glossaryTerm"]:
+        return "glossaryTerm"
+
+    def to_document(self) -> dict[str, object]:
+        properties: dict[str, object] = {
+            "name": self.name,
+            "domain": self.domain,
+            "description": self.description,
+            "owners": [
+                {
+                    "id": owner.id,
+                    **({"description": owner.description} if owner.description is not None else {}),
+                }
+                for owner in self.owners
+            ],
+        }
+        if self.parent_id is not None:
+            properties["parentId"] = self.parent_id
+        if self.acronyms is not None:
+            properties["acronyms"] = list(self.acronyms)
+        return {
+            "type": "glossaryTerm",
+            "id": self.id,
+            "properties": properties,
+        }
+
+
+ResourceConfigV3 = (
+    BusinessDomainResourceConfig | DataProductResourceConfig | GlossaryTermResourceConfig
+)
 
 
 def business_domain_resource_sort_key(resource: BusinessDomainResourceConfig) -> tuple[int, str]:
@@ -186,10 +234,16 @@ def data_product_resource_sort_key(resource: DataProductResourceConfig) -> tuple
     return (1, resource.id)
 
 
+def glossary_term_resource_sort_key(resource: GlossaryTermResourceConfig) -> tuple[int, str]:
+    return (2, resource.id)
+
+
 def resource_sort_key(resource: ResourceConfigV3) -> tuple[int, str]:
     if isinstance(resource, BusinessDomainResourceConfig):
         return business_domain_resource_sort_key(resource)
-    return data_product_resource_sort_key(resource)
+    if isinstance(resource, DataProductResourceConfig):
+        return data_product_resource_sort_key(resource)
+    return glossary_term_resource_sort_key(resource)
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +280,14 @@ class GovernanceConfigV3:
             resource
             for resource in self.resources
             if isinstance(resource, DataProductResourceConfig)
+        )
+
+    @property
+    def glossary_terms(self) -> tuple[GlossaryTermResourceConfig, ...]:
+        return tuple(
+            resource
+            for resource in self.resources
+            if isinstance(resource, GlossaryTermResourceConfig)
         )
 
 
