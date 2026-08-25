@@ -9,10 +9,12 @@ and apply create-or-replace mutations only with an explicit opt-in. Unified Cata
 Glossary Terms with a paired remote-state artifact and explicit credential
 selectors.
 
-Stable package version: `1.1.0` (v1.1 Scanning and Classification as Code
-released / stable). The working development package version is `1.2.0.dev0`
-(v1.2 Unified Catalog foundation in progress). Package `1.0.0` remains the
-historical v1.0 foundation release.
+Stable package version: `1.2.0` (v1.2 Unified Catalog Governance released /
+stable). Package `1.1.0` remains the historical v1.1 Scanning and Classification
+as Code release; package `1.0.0` remains the historical v1.0 foundation release.
+Package stability does **not** mean Microsoft Unified Catalog API is GA — UC
+targets Public Preview API `2026-03-20-preview`, is offline contract-tested, and
+carries **no live-tenant validation claim**.
 
 Multi-resource config/remote/diff/plan/apply **v2** covers AzureStorage Data
 Sources, AzureStorageMsi Scans, Custom AzureStorage Scan Rule Sets, and Custom
@@ -51,7 +53,7 @@ multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
 - CLI workflows for config/remote-state/plan/apply/result (v1 and v2 by
   `apiVersion`; apply accepts plan/v2)
 
-### Unified Catalog (v1.2 — in development)
+### Unified Catalog (v1.2 — stable)
 
 - isolated `unified_catalog/` adapter for Microsoft Purview Unified Catalog
   **Public Preview** (API `2026-03-20-preview`)
@@ -372,8 +374,8 @@ CHANGELOG.md
 - v1.0 — Purview Automation Foundation (**stable / released** as package `1.0.0`)
 - v1.1 — Scanning and Classification as Code (**stable / released** as package
   `1.1.0`)
-- v1.2 — Unified Catalog Governance (**in development** as package `1.2.0.dev0`)
-- v1.3 — Governance Drift and Operations
+- v1.2 — Unified Catalog Governance (**stable / released** as package `1.2.0`)
+- v1.3 — Governance Drift and Operations (next development milestone)
 - v2.0 — Enterprise Automation and Extensibility
 
 ## License

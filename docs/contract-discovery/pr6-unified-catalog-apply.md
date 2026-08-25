@@ -4,7 +4,7 @@
 |-------|-------|
 | Audit date | 2026-08-24 |
 | Repository HEAD (audit) | `3d1e732cdc8d8fb4b1e70a29de76054b7283339e` |
-| Package version | `1.2.0.dev0` |
+| Package version | `1.2.0` |
 | API version audited | `2026-03-20-preview` |
 | Live validation | **NOT_PERFORMED** |
 | Scope | Known Public Preview contract limitations / safety gates for apply/v3 |

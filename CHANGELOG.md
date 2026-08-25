@@ -5,28 +5,72 @@ All notable changes to this project are documented in this file.
 The format is inspired by [Keep a Changelog](https://keepachangelog.com/),
 and this project uses [Semantic Versioning](https://semver.org/) for the
 **Python package**. Package SemVer is independent of machine-contract versions
-(`purview-*-config/v1` + `/v2`, plan/result/remote-state `/v1` + `/v2`).
+(`purview-*-config/v1` + `/v2` + `/v3`, plan/result/remote-state `/v1` + `/v2`
++ `/v3`, execution-result `/v1` + `/v2` + `/v3`).
 Contract `v1` does not mean package version `1.0.0`; a future package `1.x` may
 keep contract `v1` while those artifacts remain compatible.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-25
+
+Stable package release for Unified Catalog Governance, with Microsoft Purview
+Unified Catalog Public Preview isolated behind contract v3, deterministic
+planning, bounded controlled apply, read-model governance evidence, and
+reviewer-oriented CLI workflows.
+
 ### Added
 
+- Isolated `unified_catalog` adapter (`PurviewUnifiedCatalogClient`) for
+  Microsoft Purview Unified Catalog Public Preview API `2026-03-20-preview`,
+  with fail-closed production endpoint policy
+  (`https://api.purview-service.microsoft.com`), compatibility metadata, and
+  offline loopback contract coverage (separate from Scanning).
+- Contract **v3** surfaces: `purview-governance-config/v3`,
+  `purview-remote-state/v3`, `purview-governance-plan/v3`, and
+  `purview-execution-result/v3` (including `partial` contiguous-prefix
+  invariants).
+- **Business Domains** declarative modeling via v3: target binding with declared
+  `target.tenantId` and `compute_target_context_identity_v3`, deterministic
+  diff/plan (parentId root ownership, description v2-semantics, explicit
+  `isRestricted`, deferred-configurable safety, hierarchy limits), and default
+  remote capture Shape A.
+- **Data Products** declarative modeling via v3: opt-in remote capture Shape B,
+  domain dependency resolution, deterministic ordering, and controlled apply
+  CREATE + safe DRAFT REPLACE (domain move fail-closed).
+- **Glossary Terms** declarative modeling via v3: opt-in capture Shapes C/D,
+  domain/parent dependency resolution, scoped hierarchy validation,
+  parentId full ownership, acronyms three-state, and controlled apply CREATE +
+  bounded safe REPLACE (parent-clear blocked fail-closed).
+- **Data Assets / Data Columns** and governance relationship families A–C as
+  **read-model-only** capture in remote-state/v3 (`readModelCoverage`; sparse
+  positive-only); no desired-state/diff/plan/apply for those resource types.
+- Controlled Unified Catalog **apply/v3** (`execute_governance_plan_v3`) with
+  fail-closed full-plan preflight, dry-run default, paired planned remote-state,
+  `TenantBoundAuthorizationProvider` at the APPLY seam, and
+  `derive_capture_recipe()` for exact fresh-capture replay.
 - Unified Catalog **CLI v3** workflows: `config validate`, `remote-state capture`,
-  `plan create` (requires `--remote-state-output` pair artifact), `plan inspect`,
-  `apply` / `apply --apply` (requires `--remote-state`; `--credential` required for
-  ready plans, not for blocked), and `result inspect`. Explicit `--credential`
-  selectors (`azure-cli`, `azure-developer-cli`, `client-secret`, `certificate`);
-  env material for client-secret/certificate uses `AZURE_CLIENT_ID` /
-  `AZURE_CLIENT_SECRET` / `AZURE_CLIENT_CERTIFICATE_PATH` (tenant always from
-  config/plan, never `AZURE_TENANT_ID`). Dual plan+remote persistence is
-  fail-closed (not atomic). Offline reviewer guide:
-  `docs/unified-catalog-reviewer-workflow.md`.
+  `plan create` (requires `--remote-state-output`), `plan inspect`,
+  `apply` / `apply --apply` (requires `--remote-state`; `--credential` required
+  for ready plans), and `result inspect`. Explicit `--credential` selectors;
+  tenant always from config/plan (never `AZURE_TENANT_ID`). Offline reviewer
+  guide: `docs/unified-catalog-reviewer-workflow.md`.
 - Strict `load_remote_state_v3_text` / `load_remote_state_v3_file` for local
   planned remote-state/v3 artifacts.
-- Offline CLI E2E and failure-matrix tests for v3; CI cli-integration smoke for
-  fictional config/v3 validate and v3 help flags.
+- Example `examples/fictional-governance-config-v3.yaml` and offline UC contract /
+  CLI E2E / failure-matrix tests; CI cli-integration smoke for fictional
+  config/v3 validate and v3 help flags.
+- `docs/contract-discovery/pr6-unified-catalog-apply.md` (apply/v3 safety gates).
+
+### Changed
+
+- Stable package version `1.2.0`.
+- README release status and roadmap: v1.2 Unified Catalog Governance released as
+  package `1.2.0` (package stable ≠ Microsoft Unified Catalog API GA).
+- Package metadata description documents contracts `(v1+v2+v3)`.
+- README capability matrix documents apply/v3 bounded support and
+  blocked-capability semantics (`executionEligibility: blocked` is not a planner
+  error; executor fails closed before any write).
 
 ### Fixed
 
@@ -35,89 +79,33 @@ keep contract `v1` while those artifacts remain compatible.
   result serialization matches fail-closed semantics.
 - Data Product and Glossary Term description drift reasons now use
   `canonical_json_scalar` so plan self-validation accepts description replaces.
-
-- Controlled Unified Catalog **apply/v3** (`execute_governance_plan_v3`) with
-  fail-closed full-plan preflight (P0–M), dry-run default, bounded write surface
-  (Data Product and Glossary Term CREATE/safe REPLACE; Business Domain REPLACE
-  only), `partial` execution-result/v3 status for pre-write interruption after
-  successful writes, and `TenantBoundAuthorizationProvider` at the APPLY seam.
-- `purview-execution-result/v3` schema, models, loader, and validation
-  (including `partial` contiguous-prefix invariants).
-- `derive_capture_recipe()` for exact fresh-capture replay from planned
-  remote-state/v3 artifacts.
-- Contract-test harness routes for targeted GET and bounded POST/PUT (no
-  successful `POST /businessdomains`).
-- `docs/contract-discovery/pr6-unified-catalog-apply.md` (Fase 0 safety gates).
-
-### Changed
-
-- README capability matrix documents apply/v3 bounded support and blocked-capability
-  semantics (`executionEligibility: blocked` is not a planner error; executor
-  fails closed before any write).
-
-- Data Assets and Data Columns **read-model** capture in `purview-remote-state/v3`
-  (PR5): opt-in `include_data_assets`, `include_data_columns`, and governance
-  relationship families A–C via separate `readModelCoverage` (sparse positive-only).
-- `enumerate_data_assets()`, `query_data_columns()`, and relationship list methods
-  on `PurviewUnifiedCatalogClient` (read-only GET/POST query).
-- Governance relationship normalization for `dataProductToDataAsset`,
-  `glossaryTermToDataAsset`, and `glossaryTermToDataColumn` (Related only).
-- Glossary Terms declarative modeling in contract **v3** (planning + controlled apply):
-  config desired state, opt-in remote capture (Shapes C/D), diff, plan with
-  domain/parent dependency resolution, scoped hierarchy validation, and
-  deterministic operation ordering after Business Domains and Data Products.
-  Apply supports CREATE and safe REPLACE (parent-clear blocked fail-closed).
-- `enumerate_glossary_terms()` on `PurviewUnifiedCatalogClient`.
-- Opt-in remote capture `include_glossary_terms=True` (Shape C); Shape D when
-  combined with `include_data_products=True`; default capture remains Shape A.
-- Glossary Term policy: **parentId full ownership** (absent = root intent),
-  **acronyms three-state** optional explicit ownership, remote `null` fail-closed,
-  duplicate names allowed (UUID-only matching), domain move blocked, deferred
-  configurables safety, status safety-only.
-- Data Products declarative modeling in contract **v3** (planning-only; no apply):
-  config desired state, opt-in remote capture (Shape B), diff, and plan with
-  domain dependency resolution and deterministic operation ordering.
-- `enumerate_data_products()` on `PurviewUnifiedCatalogClient` (14 official
-  `CatalogModelDataProductTypeEnum` values from API `2026-03-20-preview`).
-- Opt-in remote capture `include_data_products=True` (Shape B); default capture
-  remains Business Domain–only (Shape A, PR2 compatible).
-- Data Product safety: `status` / `provisioningState`, deferred configurables,
-  owner/audience canonicalization, domain move fail-closed policy.
-- Business Domains declarative modeling via contract **v3**:
-  `purview-governance-config/v3`, `purview-remote-state/v3`,
-  `purview-governance-plan/v3` (planning-only; no apply).
-- Unified Catalog target binding with declared `target.tenantId` and
-  `compute_target_context_identity_v3` (separate from frozen v1/v2 Scanning
-  target identity).
-- Deterministic diff/plan for Business Domains: parentId root ownership,
-  description v2-semantics, explicit `isRestricted` ownership,
-  `UnsupportedConfigurableField` safety for deferred configurables,
-  hierarchy limits (depth 5, count 200 including uninterpreted remotes),
-  name-conflict CREATE blocking.
-- Example `examples/fictional-governance-config-v3.yaml` and offline UC contract
-  tests extended for Business Domains v3 capture/plan.
-- `unified_catalog` package with `PurviewUnifiedCatalogClient`, fail-closed
-  production endpoint policy (`https://api.purview-service.microsoft.com`),
-  Public Preview API `2026-03-20-preview`, compatibility metadata, and
-  read-only `enumerate_business_domains()` contract proof.
-- Offline Unified Catalog loopback contract server and tests (isolated from
-  Scanning contract harness).
-
-### Changed
-
-- Package development version `1.2.0.dev0`.
-
-### Fixed
-
 - README CI badge and package author metadata (`adrianmartnez`).
 
-### Safety
+### Safety / limitations
 
-- Unified Catalog Business Domains v3 is **planning-only**; no REST writes, no
-  apply, no CLI UC workflow. `executionEligibility: ready` indicates absence of
-  known v3 blockers — not Microsoft execution guarantee. Declared `tenantId` is
-  not live-verified against credentials in PR2. REPLACE blocked when deferred
-  configurables would be clobbered.
+- Unified Catalog API remains `2026-03-20-preview` **Public Preview**. Package
+  `1.2.0` is a stable Python package release; that does **not** mean the
+  Microsoft Unified Catalog API is GA.
+- Capabilities are **offline contract-tested**. There is **no live-tenant
+  validation claim**. Offline contract tests are not production Purview
+  validation.
+- Captures are **permission-scoped** (empty capture means zero visible items for
+  the credentials used, not tenant-wide inventory).
+- Dry-run is the default; mutation requires explicit `--apply` /
+  `ExecutionMode.APPLY`. No automatic deletes, retries, rollback claim, or
+  auto-replan.
+- No Data Asset writes, Data Column ingest, relationship writes, or lineage
+  writes.
+- Business Domain **CREATE** unsupported/fail-closed; Business Domain **REPLACE**
+  bounded only (blocked when deferred configurables would be clobbered).
+- Data Product CREATE + safe DRAFT REPLACE; Glossary Term CREATE + bounded safe
+  REPLACE; Glossary Term parent-clear blocked fail-closed.
+- Declared `tenantId` is not live-verified against credentials.
+- `executionEligibility: ready` means absence of known v3 blockers — not a
+  Microsoft execution guarantee.
+- DefaultAzureCredential / managed identity are unsupported for apply/v3
+  (tenant-bound authorization required for ready plans).
+- No automatic destructive reconciliation; no v4 contracts; no GA claim for UC.
 - Unified Catalog client secret-sentinel coverage; bearer tokens are not
   persisted; Authorization is excluded from sanitized errors and contract
   recordings.
