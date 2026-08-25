@@ -1,9 +1,8 @@
-# PR6 Contract Discovery — Unified Catalog Apply (Fase 0)
+# Unified Catalog Apply — Public Preview Contract Evidence
 
 | Field | Value |
 |-------|-------|
 | Audit date | 2026-08-24 |
-| Repository HEAD (audit) | `3d1e732cdc8d8fb4b1e70a29de76054b7283339e` |
 | Package version | `1.2.0` |
 | API version audited | `2026-03-20-preview` |
 | Live validation | **NOT_PERFORMED** |
@@ -19,7 +18,8 @@
 | Business Domain Create | https://learn.microsoft.com/en-us/rest/api/purview/purview-unified-catalog/business-domain/create?view=rest-purview-purview-unified-catalog-2026-03-20-preview |
 | Terms Update | https://learn.microsoft.com/en-us/rest/api/purview/purview-unified-catalog/terms/update?view=rest-purview-purview-unified-catalog-2026-03-20-preview |
 
-**Not used as primary proof:** project fake harness, remote normalizer, blogs, StackOverflow.
+The offline contract harness and local normalization code were not used as primary
+API evidence. Blogs and StackOverflow were not used as primary proof.
 
 ## Gate findings
 
@@ -57,4 +57,10 @@ These UNPROVEN gates are **capability limitations**, not merge blockers. apply/v
 - Fail-closes full plan before first write when unsupported operations appear.
 - Blocks BD child→root and Term child→root parent clears.
 
-See PR6 plan REVISIÓN 4 for bounded capability matrix and full-plan preflight.
+## Enforced v1.2 capability boundary
+
+- Business Domain CREATE is not implemented
+- Unsupported parent-clear operations fail closed
+- Full-plan safety blocks unsupported operations before the first write
+- Implementation is covered by offline contract tests
+- No live-tenant validation claim

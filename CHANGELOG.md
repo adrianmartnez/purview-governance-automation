@@ -60,7 +60,7 @@ reviewer-oriented CLI workflows.
 - Example `examples/fictional-governance-config-v3.yaml` and offline UC contract /
   CLI E2E / failure-matrix tests; CI cli-integration smoke for fictional
   config/v3 validate and v3 help flags.
-- `docs/contract-discovery/pr6-unified-catalog-apply.md` (apply/v3 safety gates).
+- `docs/contract-discovery/unified-catalog-apply-contract.md` (apply/v3 safety gates).
 
 ### Changed
 
