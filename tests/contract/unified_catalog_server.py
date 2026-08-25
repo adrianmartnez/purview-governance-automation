@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from collections.abc import Iterator
@@ -70,6 +71,7 @@ class RecordedRequest:
     authorization_valid: bool
     skip_token: str | None = None
     write_only: str | None = None
+    json_body: dict[str, Any] | None = None
 
 
 def paged_data_products_fixture(
@@ -264,6 +266,14 @@ class UnifiedCatalogScenarioState:
     glossary_term_relationships: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     column_query_requests: list[dict[str, Any]] = field(default_factory=list)
     recordings: list[RecordedRequest] = field(default_factory=list)
+    business_domains_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    data_products_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    glossary_terms_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    write_mode: str = "success"
+    targeted_get_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    second_preflight_fail_after_writes: int | None = None
+    second_preflight_fail_kind: str | None = None
+    apply_writes_completed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,7 +296,7 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
         def log_message(self, format: str, *args: object) -> None:  # noqa: A003
             return
 
-        def _record(self) -> None:
+        def _record(self, *, json_body: dict[str, Any] | None = None) -> None:
             auth = self.headers.get("Authorization")
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
@@ -303,7 +313,261 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                     authorization_valid=authorization_is_valid(auth),
                     skip_token=skip_tokens[0] if skip_tokens else None,
                     write_only=write_only[0] if write_only else None,
+                    json_body=copy.deepcopy(json_body) if json_body is not None else None,
                 )
+            )
+
+        def _read_json_body(self) -> dict[str, Any] | None:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0:
+                return None
+            raw = self.rfile.read(length)
+            try:
+                body = json.loads(raw.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return None
+            if not isinstance(body, dict):
+                return None
+            return body
+
+        def _resource_id_from_collection_path(
+            self,
+            parsed: Any,
+            collection_path: str,
+        ) -> str | None:
+            prefix = f"{collection_path}/"
+            if not parsed.path.startswith(prefix):
+                return None
+            remainder = parsed.path[len(prefix) :]
+            if not remainder or "/" in remainder:
+                return None
+            return remainder
+
+        def _business_domain_items(self) -> list[dict[str, Any]]:
+            if state.business_domains_by_id:
+                return list(state.business_domains_by_id.values())
+            return state.enumerate_items or [fictional_business_domain_item()]
+
+        def _data_product_items(self) -> list[dict[str, Any]]:
+            if state.data_products_by_id:
+                return list(state.data_products_by_id.values())
+            return list(state.enumerate_data_products_items)
+
+        def _glossary_term_items(self) -> list[dict[str, Any]]:
+            if state.glossary_terms_by_id:
+                return list(state.glossary_terms_by_id.values())
+            return list(state.enumerate_glossary_terms_items)
+
+        def _track_targeted_get(self, resource_kind: str, resource_id: str) -> int:
+            key = (resource_kind, resource_id)
+            count = state.targeted_get_counts.get(key, 0) + 1
+            state.targeted_get_counts[key] = count
+            return count
+
+        def _second_preflight_should_fail(self) -> bool:
+            threshold = state.second_preflight_fail_after_writes
+            if threshold is None:
+                return False
+            return state.apply_writes_completed >= threshold
+
+        def _handle_get_business_domain_by_id(self, parsed: Any, domain_id: str) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            get_count = self._track_targeted_get("businessDomain", domain_id)
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "auth"
+                and get_count == 2
+            ):
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "read"
+                and get_count == 2
+            ):
+                self._send_json(500, {"error": {"code": "ServerError"}})
+                return
+            item = state.business_domains_by_id.get(domain_id)
+            if item is None:
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            payload = copy.deepcopy(item)
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "stale"
+                and get_count == 2
+            ):
+                payload["name"] = f"{payload.get('name', 'domain')}-stale-drift"
+            self._send_json(200, payload)
+
+        def _handle_get_data_product_by_id(self, parsed: Any, product_id: str) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            get_count = self._track_targeted_get("dataProduct", product_id)
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "auth"
+                and get_count == 2
+            ):
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "read"
+                and get_count == 2
+            ):
+                self._send_json(500, {"error": {"code": "ServerError"}})
+                return
+            item = state.data_products_by_id.get(product_id)
+            if item is None:
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            payload = copy.deepcopy(item)
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "stale"
+                and get_count == 2
+            ):
+                payload["name"] = f"{payload.get('name', 'product')}-stale-drift"
+            self._send_json(200, payload)
+
+        def _handle_get_glossary_term_by_id(self, parsed: Any, term_id: str) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            get_count = self._track_targeted_get("glossaryTerm", term_id)
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "auth"
+                and get_count == 2
+            ):
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "read"
+                and get_count == 2
+            ):
+                self._send_json(500, {"error": {"code": "ServerError"}})
+                return
+            item = state.glossary_terms_by_id.get(term_id)
+            if item is None:
+                self._send_json(404, {"error": {"code": "NotFound"}})
+                return
+            payload = copy.deepcopy(item)
+            if (
+                self._second_preflight_should_fail()
+                and state.second_preflight_fail_kind == "stale"
+                and get_count == 2
+            ):
+                payload["name"] = f"{payload.get('name', 'term')}-stale-drift"
+            self._send_json(200, payload)
+
+        def _handle_write_failure(self) -> bool:
+            mode = state.write_mode
+            if mode == "success":
+                return False
+            if mode == "unauthorized":
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return True
+            if mode == "forbidden":
+                self._send_json(403, {"error": {"code": "Forbidden"}})
+                return True
+            if mode == "client_error":
+                self._send_json(400, {"error": {"code": "BadRequest"}})
+                return True
+            if mode == "server_error":
+                self._send_json(500, {"error": {"code": "ServerError"}})
+                return True
+            return False
+
+        def _handle_put_business_domain(
+            self,
+            parsed: Any,
+            domain_id: str,
+            body: dict[str, Any],
+        ) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            if self._handle_write_failure():
+                return
+            merged = copy.deepcopy(body)
+            merged["id"] = domain_id
+            state.business_domains_by_id[domain_id] = merged
+            state.apply_writes_completed += 1
+            self._send_json(200, merged)
+
+        def _handle_put_data_product(
+            self,
+            parsed: Any,
+            product_id: str,
+            body: dict[str, Any],
+        ) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            if self._handle_write_failure():
+                return
+            merged = copy.deepcopy(body)
+            merged["id"] = product_id
+            state.data_products_by_id[product_id] = merged
+            state.apply_writes_completed += 1
+            self._send_json(200, merged)
+
+        def _handle_put_glossary_term(
+            self,
+            parsed: Any,
+            term_id: str,
+            body: dict[str, Any],
+        ) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            if self._handle_write_failure():
+                return
+            merged = copy.deepcopy(body)
+            merged["id"] = term_id
+            state.glossary_terms_by_id[term_id] = merged
+            state.apply_writes_completed += 1
+            self._send_json(200, merged)
+
+        def _handle_post_data_product(self, parsed: Any, body: dict[str, Any]) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            if self._handle_write_failure():
+                return
+            product_id = body.get("id")
+            if not isinstance(product_id, str):
+                self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                return
+            created = copy.deepcopy(body)
+            state.data_products_by_id[product_id] = created
+            state.apply_writes_completed += 1
+            self._send_json(201, created)
+
+        def _handle_post_glossary_term(self, parsed: Any, body: dict[str, Any]) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            if self._handle_write_failure():
+                return
+            term_id = body.get("id")
+            if not isinstance(term_id, str):
+                self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                return
+            created = copy.deepcopy(body)
+            state.glossary_terms_by_id[term_id] = created
+            state.apply_writes_completed += 1
+            self._send_json(201, created)
+
+        def _handle_post_business_domain_rejected(self, parsed: Any) -> None:
+            if not self._validate_api_version(parsed):
+                return
+            self._send_json(
+                405,
+                {
+                    "error": {
+                        "code": "MethodNotAllowed",
+                        "message": "POST /businessdomains is not supported",
+                    },
+                },
             )
 
         def _send_json(self, status: int, payload: Any) -> None:
@@ -382,7 +646,7 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                     ]
                     self._send_json(200, paged_data_products_fixture(items))
                     return
-                page_one = state.enumerate_data_products_items or [fictional_data_product_item()]
+                page_one = self._data_product_items() or [fictional_data_product_item()]
                 token = "fictional-data-product-skip-token"
                 next_link = state.enumerate_data_products_next_link or (
                     f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -392,7 +656,7 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                 self._send_json(200, paged_data_products_fixture(page_one, next_link=next_link))
                 return
 
-            items = state.enumerate_data_products_items or [fictional_data_product_item()]
+            items = self._data_product_items()
             self._send_json(200, paged_data_products_fixture(items))
 
         def _handle_enumerate_glossary_terms(self, parsed: Any) -> None:
@@ -441,7 +705,7 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                     ]
                     self._send_json(200, paged_glossary_terms_fixture(items))
                     return
-                page_one = state.enumerate_glossary_terms_items or [fictional_glossary_term_item()]
+                page_one = self._glossary_term_items() or [fictional_glossary_term_item()]
                 token = "fictional-glossary-term-skip-token"
                 next_link = state.enumerate_glossary_terms_next_link or (
                     f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -451,7 +715,7 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                 self._send_json(200, paged_glossary_terms_fixture(page_one, next_link=next_link))
                 return
 
-            items = state.enumerate_glossary_terms_items or [fictional_glossary_term_item()]
+            items = self._glossary_term_items()
             self._send_json(200, paged_glossary_terms_fixture(items))
 
         def _handle_enumerate_data_assets(self, parsed: Any) -> None:
@@ -622,85 +886,111 @@ def _make_handler(state: UnifiedCatalogScenarioState) -> type[BaseHTTPRequestHan
                 self._send_json(200, paged_domains_fixture(page_one, next_link=next_link))
                 return
 
-            items = state.enumerate_items or [fictional_business_domain_item()]
+            items = self._business_domain_items()
             self._send_json(200, paged_domains_fixture(items))
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             self._record()
+            if not self._require_auth():
+                self._send_json(
+                    401,
+                    {
+                        "error": {
+                            "code": "Unauthorized",
+                            "message": SECRET_SENTINEL_CONTRACT_401,
+                        }
+                    },
+                )
+                return
+            domain_id = self._resource_id_from_collection_path(parsed, BUSINESS_DOMAINS_PATH)
+            if domain_id is not None:
+                self._handle_get_business_domain_by_id(parsed, domain_id)
+                return
+            product_id = self._resource_id_from_collection_path(parsed, DATA_PRODUCTS_PATH)
+            if product_id is not None and not parsed.path.endswith("/relationships"):
+                self._handle_get_data_product_by_id(parsed, product_id)
+                return
+            term_id = self._resource_id_from_collection_path(parsed, GLOSSARY_TERMS_PATH)
+            if term_id is not None and not parsed.path.endswith("/relationships"):
+                self._handle_get_glossary_term_by_id(parsed, term_id)
+                return
             if parsed.path == BUSINESS_DOMAINS_PATH:
-                if not self._require_auth():
-                    self._send_json(
-                        401,
-                        {
-                            "error": {
-                                "code": "Unauthorized",
-                                "message": SECRET_SENTINEL_CONTRACT_401,
-                            }
-                        },
-                    )
-                    return
                 self._handle_enumerate(parsed)
                 return
             if parsed.path == DATA_PRODUCTS_PATH:
-                if not self._require_auth():
-                    self._send_json(
-                        401,
-                        {
-                            "error": {
-                                "code": "Unauthorized",
-                                "message": SECRET_SENTINEL_CONTRACT_401,
-                            }
-                        },
-                    )
-                    return
                 self._handle_enumerate_data_products(parsed)
                 return
             if parsed.path == GLOSSARY_TERMS_PATH:
-                if not self._require_auth():
-                    self._send_json(
-                        401,
-                        {
-                            "error": {
-                                "code": "Unauthorized",
-                                "message": SECRET_SENTINEL_CONTRACT_401,
-                            }
-                        },
-                    )
-                    return
                 self._handle_enumerate_glossary_terms(parsed)
                 return
             if parsed.path == DATA_ASSETS_PATH:
-                if not self._require_auth():
-                    self._send_json(401, {"error": {"code": "Unauthorized"}})
-                    return
                 self._handle_enumerate_data_assets(parsed)
                 return
             if parsed.path.endswith("/relationships"):
-                if not self._require_auth():
-                    self._send_json(401, {"error": {"code": "Unauthorized"}})
-                    return
                 self._handle_relationships(parsed)
+                return
+            self._send_json(404, {"error": {"code": "NotFound"}})
+
+        def do_PUT(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            body = self._read_json_body()
+            self._record(json_body=body)
+            if not self._require_auth():
+                self._send_json(401, {"error": {"code": "Unauthorized"}})
+                return
+            if body is None:
+                self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                return
+            domain_id = self._resource_id_from_collection_path(parsed, BUSINESS_DOMAINS_PATH)
+            if domain_id is not None:
+                self._handle_put_business_domain(parsed, domain_id, body)
+                return
+            product_id = self._resource_id_from_collection_path(parsed, DATA_PRODUCTS_PATH)
+            if product_id is not None:
+                self._handle_put_data_product(parsed, product_id, body)
+                return
+            term_id = self._resource_id_from_collection_path(parsed, GLOSSARY_TERMS_PATH)
+            if term_id is not None:
+                self._handle_put_glossary_term(parsed, term_id, body)
                 return
             self._send_json(404, {"error": {"code": "NotFound"}})
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            self._record()
+            body = self._read_json_body()
+            self._record(json_body=body)
+            if parsed.path == BUSINESS_DOMAINS_PATH:
+                if not self._require_auth():
+                    self._send_json(401, {"error": {"code": "Unauthorized"}})
+                    return
+                self._handle_post_business_domain_rejected(parsed)
+                return
+            if parsed.path == DATA_PRODUCTS_PATH:
+                if not self._require_auth():
+                    self._send_json(401, {"error": {"code": "Unauthorized"}})
+                    return
+                if body is None:
+                    self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                    return
+                self._handle_post_data_product(parsed, body)
+                return
+            if parsed.path == GLOSSARY_TERMS_PATH:
+                if not self._require_auth():
+                    self._send_json(401, {"error": {"code": "Unauthorized"}})
+                    return
+                if body is None:
+                    self._send_json(400, {"error": {"code": "InvalidRequest"}})
+                    return
+                self._handle_post_glossary_term(parsed, body)
+                return
             if parsed.path != DATA_COLUMNS_QUERY_PATH:
                 self._send_json(404, {"error": {"code": "NotFound"}})
                 return
             if not self._require_auth():
                 self._send_json(401, {"error": {"code": "Unauthorized"}})
                 return
-            length = int(self.headers.get("Content-Length", "0"))
-            raw = self.rfile.read(length)
-            try:
-                body = json.loads(raw.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                self._send_json(400, {"error": {"code": "InvalidRequest"}})
-                return
-            if not isinstance(body, dict):
+            if body is None:
                 self._send_json(400, {"error": {"code": "InvalidRequest"}})
                 return
             self._handle_query_data_columns(parsed, body)
@@ -734,6 +1024,9 @@ def start_unified_catalog_contract_server(
     query_data_columns_next_link: str | None = None,
     data_product_relationships: dict[str, list[dict[str, Any]]] | None = None,
     glossary_term_relationships: dict[str, list[dict[str, Any]]] | None = None,
+    write_mode: str = "success",
+    second_preflight_fail_after_writes: int | None = None,
+    second_preflight_fail_kind: str | None = None,
 ) -> Iterator[UnifiedCatalogContractServer]:
     """Start a daemon Unified Catalog contract server on an ephemeral loopback port."""
     state = UnifiedCatalogScenarioState(
@@ -760,7 +1053,19 @@ def start_unified_catalog_contract_server(
         query_data_columns_next_link=query_data_columns_next_link,
         data_product_relationships=dict(data_product_relationships or {}),
         glossary_term_relationships=dict(glossary_term_relationships or {}),
+        write_mode=write_mode,
+        second_preflight_fail_after_writes=second_preflight_fail_after_writes,
+        second_preflight_fail_kind=second_preflight_fail_kind,
     )
+    domain_seed = list(enumerate_items or [])
+    if not domain_seed and not enumerate_page2_items:
+        domain_seed = [fictional_business_domain_item()]
+    for item in domain_seed:
+        state.business_domains_by_id[item["id"]] = copy.deepcopy(item)
+    for item in enumerate_data_products_items or []:
+        state.data_products_by_id[item["id"]] = copy.deepcopy(item)
+    for item in enumerate_glossary_terms_items or []:
+        state.glossary_terms_by_id[item["id"]] = copy.deepcopy(item)
     handler = _make_handler(state)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     host, port = httpd.server_address[0], httpd.server_address[1]

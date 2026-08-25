@@ -59,10 +59,10 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
   `enumerate_data_assets()`, opt-in `query_data_columns()`, and relationship list
   helpers (PagedDomain / PagedDataProduct / PagedTerm pagination; Data Column POST
   query with nextLink-aware termination)
-- **Business Domains + Data Products + Glossary Terms** declarative config/remote/diff/plan via
+- **Business Domains + Data Products + Glossary Terms** declarative config/remote/diff/plan/apply via
   contract **v3** (`purview-governance-config/v3`, `purview-remote-state/v3`,
-  `purview-governance-plan/v3`) — **planning-only**; no Unified Catalog apply in
-  v1.2
+  `purview-governance-plan/v3`, `purview-execution-result/v3`) — **controlled apply**
+  for supported mutations only (see capability matrix below)
 - default remote capture remains **Business Domain–only** (Shape A, PR2
   compatible); Data Product capture is **opt-in**
   (`include_data_products=True`, Shape B); Glossary Term capture is **opt-in**
@@ -81,8 +81,11 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
 - Glossary Term hierarchy validation is scoped to each desired term's dependency
   closure, not the global remote catalog
 - Glossary Term domain move is blocked (`plan.glossary_term_domain_move_unverified`)
-- future Unified Catalog apply CREATE for Glossary Terms will use REST `status: DRAFT`
-  (PR6; not in v1.2 planning)
+- future Unified Catalog apply CREATE for Glossary Terms uses REST `status: DRAFT`
+- `execute_governance_plan_v3(plan, planned_remote_state, client, *, mode=ExecutionMode.DRY_RUN)`
+  is the Unified Catalog apply boundary (tenant-bound auth required for APPLY)
+- A blocked apply capability is **not** a planner error — the executor fails closed
+  before any write when the plan contains unsupported operations or preflight fails
 - `target.tenantId` is declared, not live-verified in v1.2
 - remote `status` and `systemData.provisioningState` are safety-only (no desired
   status; no publish/unpublish/expire automation)
@@ -111,8 +114,8 @@ substitute for production validation against Microsoft Purview.
 - Data Source kinds beyond AzureStorage
 - Scan / SRS / Classification Rule kinds beyond the supported AzureStorage /
   Custom / AzureStorageMsi slice
-- Unified Catalog desired-state / diff / plan / apply (beyond PR1 foundation)
-- Unified Catalog apply, CLI workflow, execution-result/v3
+- Unified Catalog apply beyond bounded PR6 support (BD CREATE, parent-clear, deletes,
+  assets/columns/relationships writes)
 - Unified Catalog CLI commands
 - automatic deletes
 - automatic retries
@@ -126,7 +129,9 @@ are blocked from safe comparison (`remote.unsupported_configurable_field`).
 ## Safety model (apply)
 
 `execute_governance_plan(plan, client, *, mode=ExecutionMode.DRY_RUN)` is the
-supported mutation boundary. CLI flags are not the security boundary.
+supported Scanning mutation boundary. Unified Catalog apply uses
+`execute_governance_plan_v3(plan, planned_remote_state, client, *, mode=ExecutionMode.DRY_RUN)`.
+CLI flags are not the security boundary.
 
 Dry-run is the default. Mutation requires explicit opt-in (`ExecutionMode.APPLY`
 / CLI `--apply`). Fresh remote-state capture runs before writes for the

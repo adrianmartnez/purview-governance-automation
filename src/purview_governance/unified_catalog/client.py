@@ -808,3 +808,278 @@ class PurviewUnifiedCatalogClient:
     def enumerate_glossary_terms(self) -> GlossaryTermListResult:
         """Enumerate Glossary Terms (PagedTerm), following same-origin ``nextLink`` values."""
         return GlossaryTermListResult(items=self._enumerate_glossary_terms_paginated())
+
+    def _require_tenant_bound_execution_context(self):
+        """APPLY/v3 execution boundary: tenant-aware provider required."""
+        from purview_governance.auth.tenant_bound import (
+            TenantBindingUnsupportedError,
+            is_tenant_bound_provider,
+        )
+
+        if not is_tenant_bound_provider(self._auth_provider):
+            raise TenantBindingUnsupportedError(
+                "apply.tenant_binding_unsupported",
+                "APPLY/v3 requires a tenant-bound authorization provider",
+            )
+        return self._auth_provider.execution_context()
+
+    def get_business_domain(self, domain_id: str) -> dict[str, Any]:
+        """Targeted GET for one Business Domain."""
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{BUSINESS_DOMAINS_PATH}/{domain_id}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        response = self._send(
+            "GET",
+            url,
+            operation="get_business_domain",
+            headers=headers,
+        )
+        if response.status_code == 404:
+            self._raise_http_error(
+                response,
+                operation="get_business_domain",
+                method="GET",
+                url=url,
+            )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="get_business_domain",
+                method="GET",
+                url=url,
+            )
+        return _defensive_snapshot(_parse_json_object(response, operation="get_business_domain"))
+
+    def get_data_product(self, product_id: str) -> dict[str, Any]:
+        """Targeted GET for one Data Product."""
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{DATA_PRODUCTS_PATH}/{product_id}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        response = self._send(
+            "GET",
+            url,
+            operation="get_data_product",
+            headers=headers,
+        )
+        if response.status_code == 404:
+            self._raise_http_error(
+                response,
+                operation="get_data_product",
+                method="GET",
+                url=url,
+            )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="get_data_product",
+                method="GET",
+                url=url,
+            )
+        return _defensive_snapshot(_parse_json_object(response, operation="get_data_product"))
+
+    def get_glossary_term(self, term_id: str) -> dict[str, Any]:
+        """Targeted GET for one Glossary Term."""
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{GLOSSARY_TERMS_PATH}/{term_id}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        response = self._send(
+            "GET",
+            url,
+            operation="get_glossary_term",
+            headers=headers,
+        )
+        if response.status_code == 404:
+            self._raise_http_error(
+                response,
+                operation="get_glossary_term",
+                method="GET",
+                url=url,
+            )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="get_glossary_term",
+                method="GET",
+                url=url,
+            )
+        return _defensive_snapshot(_parse_json_object(response, operation="get_glossary_term"))
+
+    def _update_business_domain(
+        self,
+        domain_id: str,
+        payload: dict[str, Any],
+    ) -> UnifiedCatalogWriteReceipt:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{BUSINESS_DOMAINS_PATH}/{domain_id}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "PUT",
+            url,
+            operation="update_business_domain",
+            headers=headers,
+            json_body=payload,
+        )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="update_business_domain",
+                method="PUT",
+                url=url,
+            )
+        return UnifiedCatalogWriteReceipt(
+            resource_type="businessDomain",
+            resource_id=domain_id,
+            status_code=response.status_code,
+        )
+
+    def _create_data_product(self, payload: dict[str, Any]) -> UnifiedCatalogWriteReceipt:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{DATA_PRODUCTS_PATH}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "POST",
+            url,
+            operation="create_data_product",
+            headers=headers,
+            json_body=payload,
+        )
+        if response.status_code != 201:
+            self._raise_http_error(
+                response,
+                operation="create_data_product",
+                method="POST",
+                url=url,
+            )
+        product_id = payload.get("id")
+        if not isinstance(product_id, str):
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_request_contract",
+                "data product create payload must include id",
+            )
+        return UnifiedCatalogWriteReceipt(
+            resource_type="dataProduct",
+            resource_id=product_id,
+            status_code=response.status_code,
+        )
+
+    def _update_data_product(
+        self,
+        product_id: str,
+        payload: dict[str, Any],
+    ) -> UnifiedCatalogWriteReceipt:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{DATA_PRODUCTS_PATH}/{product_id}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "PUT",
+            url,
+            operation="update_data_product",
+            headers=headers,
+            json_body=payload,
+        )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="update_data_product",
+                method="PUT",
+                url=url,
+            )
+        return UnifiedCatalogWriteReceipt(
+            resource_type="dataProduct",
+            resource_id=product_id,
+            status_code=response.status_code,
+        )
+
+    def _create_glossary_term(self, payload: dict[str, Any]) -> UnifiedCatalogWriteReceipt:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{GLOSSARY_TERMS_PATH}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "POST",
+            url,
+            operation="create_glossary_term",
+            headers=headers,
+            json_body=payload,
+        )
+        if response.status_code != 201:
+            self._raise_http_error(
+                response,
+                operation="create_glossary_term",
+                method="POST",
+                url=url,
+            )
+        term_id = payload.get("id")
+        if not isinstance(term_id, str):
+            raise UnifiedCatalogResponseError(
+                "unified_catalog.invalid_request_contract",
+                "glossary term create payload must include id",
+            )
+        return UnifiedCatalogWriteReceipt(
+            resource_type="glossaryTerm",
+            resource_id=term_id,
+            status_code=response.status_code,
+        )
+
+    def _update_glossary_term(
+        self,
+        term_id: str,
+        payload: dict[str, Any],
+    ) -> UnifiedCatalogWriteReceipt:
+        query = urlencode({"api-version": UNIFIED_CATALOG_API_VERSION})
+        url = f"{self._base_url}{GLOSSARY_TERMS_PATH}/{term_id}?{query}"
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = self._send(
+            "PUT",
+            url,
+            operation="update_glossary_term",
+            headers=headers,
+            json_body=payload,
+        )
+        if response.status_code != 200:
+            self._raise_http_error(
+                response,
+                operation="update_glossary_term",
+                method="PUT",
+                url=url,
+            )
+        return UnifiedCatalogWriteReceipt(
+            resource_type="glossaryTerm",
+            resource_id=term_id,
+            status_code=response.status_code,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class UnifiedCatalogWriteReceipt:
+    resource_type: str
+    resource_id: str
+    status_code: int

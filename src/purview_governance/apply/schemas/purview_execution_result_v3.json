@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/fgnfmackk/purview-governance-automation/schemas/purview-execution-result/v3",
+  "title": "purview-execution-result v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "resultIdentity",
+    "planIdentity",
+    "plannedTargetContextIdentity",
+    "executionTargetContextIdentity",
+    "plannedRemoteStateIdentity",
+    "observedRemoteStateIdentity",
+    "mode",
+    "status",
+    "writesPerformed",
+    "writesAttempted",
+    "writesUnknown",
+    "operations",
+    "failure"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "purview-execution-result/v3"
+    },
+    "resultIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "planIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "plannedTargetContextIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "executionTargetContextIdentity": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "plannedRemoteStateIdentity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "observedRemoteStateIdentity": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["dry-run", "apply"]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "dry-run-ready",
+        "applied",
+        "blocked",
+        "wrong-target",
+        "stale",
+        "failed-before-write",
+        "write-failed",
+        "indeterminate",
+        "partial"
+      ]
+    },
+    "writesPerformed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "writesAttempted": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "writesUnknown": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sequence", "type", "id", "action", "status"],
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "type": "string",
+            "enum": ["businessDomain", "dataProduct", "glossaryTerm"]
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["create", "replace"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["not-run", "succeeded", "failed", "unknown"]
+          }
+        }
+      }
+    },
+    "failure": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "apply.plan_blocked",
+                "apply.wrong_target",
+                "apply.stale_plan",
+                "apply.payload_preflight_failed",
+                "apply.payload_semantics_unverified",
+                "apply.authentication_failed",
+                "apply.remote_read_failed",
+                "apply.remote_state_failed",
+                "apply.remote_state_identity_mismatch",
+                "apply.invalid_remote_state",
+                "apply.tenant_binding_unsupported",
+                "apply.pre_write_stale_after_writes",
+                "apply.pre_write_auth_failed_after_writes",
+                "apply.pre_write_read_failed_after_writes",
+                "apply.write_rejected",
+                "apply.write_auth_failed",
+                "apply.write_outcome_unknown",
+                "apply.write_response_invalid"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

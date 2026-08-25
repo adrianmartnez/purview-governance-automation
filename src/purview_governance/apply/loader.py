@@ -1,4 +1,4 @@
-"""Strict JSON loader for purview-execution-result/v1 and /v2."""
+"""Strict JSON loader for purview-execution-result/v1, /v2, and /v3."""
 
 from __future__ import annotations
 
@@ -12,7 +12,11 @@ from purview_governance.apply.errors import (
     ExecutionResultSchemaError,
     ExecutionResultVersionError,
 )
-from purview_governance.apply.identity import RESULT_API_VERSION, RESULT_API_VERSION_V2
+from purview_governance.apply.identity import (
+    RESULT_API_VERSION,
+    RESULT_API_VERSION_V2,
+    RESULT_API_VERSION_V3,
+)
 from purview_governance.apply.models import (
     ExecutionFailure,
     ExecutionMode,
@@ -22,6 +26,10 @@ from purview_governance.apply.models import (
 from purview_governance.apply.models_v2 import (
     ExecutionResultV2,
     operations_v2_from_document,
+)
+from purview_governance.apply.models_v3 import (
+    ExecutionResultV3,
+    operations_v3_from_document,
 )
 from purview_governance.apply.validation import (
     validate_result_document_schema as validate_result_document_schema_v1,
@@ -35,8 +43,14 @@ from purview_governance.apply.validation_v2 import (
 from purview_governance.apply.validation_v2 import (
     validate_result_document_semantics as validate_result_document_semantics_v2,
 )
+from purview_governance.apply.validation_v3 import (
+    validate_result_document_schema as validate_result_document_schema_v3,
+)
+from purview_governance.apply.validation_v3 import (
+    validate_result_document_semantics as validate_result_document_semantics_v3,
+)
 
-GovernanceExecutionResult = ExecutionResult | ExecutionResultV2
+GovernanceExecutionResult = ExecutionResult | ExecutionResultV2 | ExecutionResultV3
 
 
 class DuplicateKeyError(ValueError):
@@ -103,6 +117,27 @@ def _result_from_validated_document_v1(document: dict[str, Any]) -> ExecutionRes
     )
 
 
+def _result_from_validated_document_v3(document: dict[str, Any]) -> ExecutionResultV3:
+    failure_raw = document["failure"]
+    failure = None if failure_raw is None else ExecutionFailure(code=failure_raw["code"])
+    return ExecutionResultV3(
+        api_version=document["apiVersion"],
+        plan_identity=document["planIdentity"],
+        planned_target_context_identity=document["plannedTargetContextIdentity"],
+        execution_target_context_identity=document["executionTargetContextIdentity"],
+        planned_remote_state_identity=document["plannedRemoteStateIdentity"],
+        observed_remote_state_identity=document["observedRemoteStateIdentity"],
+        mode=ExecutionMode(document["mode"]),
+        status=document["status"],
+        writes_performed=document["writesPerformed"],
+        writes_attempted=document["writesAttempted"],
+        writes_unknown=document["writesUnknown"],
+        operations=operations_v3_from_document(document["operations"]),
+        failure=failure,
+        result_identity=document["resultIdentity"],
+    )
+
+
 def _result_from_validated_document_v2(document: dict[str, Any]) -> ExecutionResultV2:
     failure_raw = document["failure"]
     failure = None if failure_raw is None else ExecutionFailure(code=failure_raw["code"])
@@ -125,7 +160,7 @@ def _result_from_validated_document_v2(document: dict[str, Any]) -> ExecutionRes
 
 
 def load_execution_result_text(text: str) -> GovernanceExecutionResult:
-    """Load and strictly validate a purview-execution-result/v1 or /v2 JSON artifact."""
+    """Load and strictly validate a purview-execution-result/v1, /v2, or /v3 JSON artifact."""
     document = _parse_result_json(text)
 
     api_version = document.get("apiVersion")
@@ -137,6 +172,10 @@ def load_execution_result_text(text: str) -> GovernanceExecutionResult:
         validate_schema = validate_result_document_schema_v2
         validate_semantics = validate_result_document_semantics_v2
         materialize = _result_from_validated_document_v2
+    elif api_version == RESULT_API_VERSION_V3:
+        validate_schema = validate_result_document_schema_v3
+        validate_semantics = validate_result_document_semantics_v3
+        materialize = _result_from_validated_document_v3
     else:
         raise ExecutionResultVersionError(
             "apply.unsupported_version",
