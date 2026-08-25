@@ -2,12 +2,11 @@
 
 [![CI](https://github.com/adrianmartnez/purview-governance-automation/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/adrianmartnez/purview-governance-automation/actions/workflows/ci.yml)
 
-Microsoft Purview governance automation in Python: declare desired Scanning
-configuration as code, compare it to remote state, produce a deterministic plan,
-and apply create-or-replace mutations only with an explicit opt-in. Unified Catalog
-(contract v3) extends the same model for Business Domains, Data Products, and
-Glossary Terms with a paired remote-state artifact and explicit credential
-selectors.
+Microsoft Purview Governance-as-Code in Python. The project models desired
+governance state, captures permission-scoped remote state, computes deterministic
+diffs and plans, and executes bounded mutations only with explicit authorization.
+It supports the Scanning Data Plane and Unified Catalog Public Preview through
+isolated, versioned contracts and offline contract tests.
 
 Stable package version: `1.2.0` (v1.2 Unified Catalog Governance released /
 stable). Package `1.1.0` remains the historical v1.1 Scanning and Classification
@@ -29,6 +28,15 @@ Package SemVer is independent of machine-contract versions
 `purview-execution-result/v1` + `/v2` + `/v3`).
 Contract v1 remains frozen for package `1.0.0` compatibility; contract v2 is the
 multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
+
+## What this repository demonstrates
+
+- versioned Governance-as-Code machine contracts
+- deterministic desired/remote identities and plans
+- fail-closed plan-before-apply execution
+- Microsoft Entra authentication boundaries
+- offline REST contract testing
+- explicit stable-package vs Public Preview API boundary
 
 ## Status
 
@@ -73,12 +81,12 @@ multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
 - **CLI v3** for the same workflows: validate, capture, plan create (paired
   `--remote-state-output`), plan inspect, dry-run / `--apply` (requires local
   `--remote-state`; `--credential` required for ready plans), result inspect
-- default remote capture remains **Business Domain–only** (Shape A, PR2
-  compatible); Data Product capture is **opt-in**
-  (`include_data_products=True`, Shape B); Glossary Term capture is **opt-in**
-  (`include_glossary_terms=True`, Shape C); both together is Shape D
+- default Unified Catalog capture remains **Business Domain–only** (Shape A);
+  Data Product and Glossary Term capture are **opt-in**
+  (`include_data_products=True`, Shape B; `include_glossary_terms=True`, Shape C);
+  both together is Shape D
 - Data Assets / Data Columns / governance relationships are **read-model-only**
-  extensions via `readModelCoverage` (PR5); no config/desired/diff/plan/apply for
+  extensions via `readModelCoverage`; no config/desired/diff/plan/apply for
   those resource types in v1.2
 - enumeration is **permission-scoped** — empty capture means zero visible items
   for the credentials used, not tenant-wide inventory
@@ -91,12 +99,13 @@ multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
 - Glossary Term hierarchy validation is scoped to each desired term's dependency
   closure, not the global remote catalog
 - Glossary Term domain move is blocked (`plan.glossary_term_domain_move_unverified`)
-- future Unified Catalog apply CREATE for Glossary Terms uses REST `status: DRAFT`
+- Glossary Term CREATE materializes REST `status: DRAFT`
 - `execute_governance_plan_v3(plan, planned_remote_state, client, *, mode=ExecutionMode.DRY_RUN)`
   is the Unified Catalog apply boundary (tenant-bound auth required for APPLY)
 - A blocked apply capability is **not** a planner error — the executor fails closed
   before any write when the plan contains unsupported operations or preflight fails
-- `target.tenantId` is declared, not live-verified in v1.2
+- Apply/v3 uses tenant-aware credentials bound to the plan `tenantId`; the project
+  does not parse JWT tenant claims or claim live-tenant validation
 - remote `status` and `systemData.provisioningState` are safety-only (no desired
   status; no publish/unpublish/expire automation)
 - deferred remote configurables (`managedAttributes`, `termsOfUse`, etc.) block
@@ -104,17 +113,19 @@ multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
 - domain move (`desired.domain != remote.domain`) is blocked by project
   fail-closed policy (`plan.domain_move_unverified` for Data Products;
   `plan.glossary_term_domain_move_unverified` for Glossary Terms)
-- **not** Data Assets / relationships as Code yet
+- Data Assets, Data Columns, and governance relationships remain read-model-only
+  in v1.2
 - **not** live-tenant validation; contract-tested offline ≠ production Purview
   validation
 - `executionEligibility: ready` means no known v3 blockers — **not** a guarantee
-  of successful Microsoft execution (PR6 fresh verification before write)
+  of successful Microsoft execution; apply/v3 performs fresh verification before
+  each supported mutation
 
 ### Contract-tested offline
 
 Default CI and reviewer flows exercise the Scanning client, remote-state capture,
 plan build, dry-run, and authorized apply against a deterministic local HTTP
-contract server, and the Unified Catalog foundation (including CLI v3) against a
+contract server, and the Unified Catalog v3 surface (including CLI v3) against a
 separate loopback contract server. This does **not** contact a live Microsoft
 Purview account and does **not** claim live-tenant validation. Offline contract
 tests are not a substitute for production validation against Microsoft Purview.
@@ -126,8 +137,8 @@ UC surfaces are **Public Preview**, **permission-scoped**, and
 - Data Source kinds beyond AzureStorage
 - Scan / SRS / Classification Rule kinds beyond the supported AzureStorage /
   Custom / AzureStorageMsi slice
-- Unified Catalog apply beyond bounded PR6 support (BD CREATE, parent-clear, deletes,
-  assets/columns/relationships writes)
+- Unified Catalog apply beyond the documented bounded v3 capability (BD CREATE,
+  parent-clear, deletes, assets/columns/relationships writes)
 - automatic deletes
 - automatic retries
 - rollback
@@ -163,7 +174,8 @@ Preflight order (fail-closed; zero PUT until complete) — Scanning:
 
 Unified Catalog apply/v3 additionally requires the paired planned remote-state
 artifact, tenant-bound authorization for ready plans, and bounded write
-capabilities (see CHANGELOG / PR6 docs).
+capabilities (see
+[docs/contract-discovery/unified-catalog-apply-contract.md](docs/contract-discovery/unified-catalog-apply-contract.md)).
 
 Write outcome classification:
 
