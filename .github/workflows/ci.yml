@@ -85,7 +85,7 @@ jobs:
       - name: Validate artifacts, clean-wheel smoke, and sdist rebuild
         run: |
           set -euo pipefail
-          EXPECTED_VERSION="1.2.0.dev0"
+          EXPECTED_VERSION="1.2.0"
           WHL=$(ls dist/purview_governance_automation-${EXPECTED_VERSION}-*.whl)
           SDIST=$(ls dist/purview_governance_automation-${EXPECTED_VERSION}.tar.gz)
           test -f "$WHL"
@@ -212,7 +212,7 @@ jobs:
       - name: Install wheel and exercise CLI from temp directory
         run: |
           set -euo pipefail
-          EXPECTED_VERSION="1.2.0.dev0"
+          EXPECTED_VERSION="1.2.0"
           WHL=$(ls dist/purview_governance_automation-${EXPECTED_VERSION}-*.whl)
           python -m venv "$RUNNER_TEMP/venv-cli"
           # shellcheck disable=SC1091
