@@ -106,10 +106,8 @@ def _governance_plan_from_validated_document(document: dict[str, Any]) -> Govern
     )
 
 
-def load_plan_text(text: str) -> GovernancePlan:
-    """Load and strictly validate a purview-governance-plan/v1 or /v2 JSON artifact."""
-    document = _parse_plan_json(text)
-
+def _materialize_plan_v1_or_v2(document: dict[str, Any]) -> GovernancePlan:
+    """Schema + semantic validation + model for an already-parsed v1/v2 document."""
     api_version = document.get("apiVersion")
     if api_version not in {PLAN_API_VERSION, PLAN_API_VERSION_V2}:
         raise PlanVersionError(
@@ -171,6 +169,12 @@ def load_plan_text(text: str) -> GovernancePlan:
     return plan
 
 
+def load_plan_text(text: str) -> GovernancePlan:
+    """Load and strictly validate a purview-governance-plan/v1 or /v2 JSON artifact."""
+    document = _parse_plan_json(text)
+    return _materialize_plan_v1_or_v2(document)
+
+
 def load_plan_file(path: str | Path) -> GovernancePlan:
     """Load a plan artifact from a UTF-8 JSON file."""
     file_path = Path(path)
@@ -212,10 +216,8 @@ def _governance_plan_v3_from_validated_document(document: dict[str, Any]) -> Gov
     )
 
 
-def load_plan_v3_text(text: str) -> GovernancePlanV3:
-    """Load and strictly validate a purview-governance-plan/v3 JSON artifact."""
-    document = _parse_plan_json(text)
-
+def _materialize_plan_v3(document: dict[str, Any]) -> GovernancePlanV3:
+    """Schema + semantic validation + model for an already-parsed v3 document."""
     api_version = document.get("apiVersion")
     if api_version != PLAN_API_VERSION_V3:
         raise PlanVersionError(
@@ -265,6 +267,12 @@ def load_plan_v3_text(text: str) -> GovernancePlanV3:
     return plan
 
 
+def load_plan_v3_text(text: str) -> GovernancePlanV3:
+    """Load and strictly validate a purview-governance-plan/v3 JSON artifact."""
+    document = _parse_plan_json(text)
+    return _materialize_plan_v3(document)
+
+
 def load_plan_v3_file(path: str | Path) -> GovernancePlanV3:
     """Load a plan/v3 artifact from a UTF-8 JSON file."""
     file_path = Path(path)
@@ -277,3 +285,32 @@ def load_plan_v3_file(path: str | Path) -> GovernancePlanV3:
     if read_failed:
         raise PlanLoadError("plan.invalid_syntax", "plan file could not be read")
     return load_plan_v3_text(text)
+
+
+def _load_plan_any_version_text(text: str) -> GovernancePlan | GovernancePlanV3:
+    """Strict once-parse version dispatch for plan/v1, /v2, or /v3."""
+    document = _parse_plan_json(text)
+    api_version = document.get("apiVersion")
+    if api_version == PLAN_API_VERSION_V3:
+        return _materialize_plan_v3(document)
+    if api_version in {PLAN_API_VERSION, PLAN_API_VERSION_V2}:
+        return _materialize_plan_v1_or_v2(document)
+    raise PlanVersionError(
+        "plan.unsupported_version",
+        "unsupported or missing plan apiVersion",
+        path="/apiVersion",
+    )
+
+
+def _load_plan_any_version_file(path: str | Path) -> GovernancePlan | GovernancePlanV3:
+    """Load a plan/v1, /v2, or /v3 artifact from a UTF-8 JSON file (once-parse)."""
+    file_path = Path(path)
+    read_failed = False
+    text = ""
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except OSError:
+        read_failed = True
+    if read_failed:
+        raise PlanLoadError("plan.invalid_syntax", "plan file could not be read")
+    return _load_plan_any_version_text(text)

@@ -4,7 +4,10 @@
 
 Microsoft Purview governance automation in Python: declare desired Scanning
 configuration as code, compare it to remote state, produce a deterministic plan,
-and apply create-or-replace mutations only with an explicit opt-in.
+and apply create-or-replace mutations only with an explicit opt-in. Unified Catalog
+(contract v3) extends the same model for Business Domains, Data Products, and
+Glossary Terms with a paired remote-state artifact and explicit credential
+selectors.
 
 Stable package version: `1.1.0` (v1.1 Scanning and Classification as Code
 released / stable). The working development package version is `1.2.0.dev0`
@@ -19,10 +22,11 @@ Explicit unsupported Scan configurables block safe comparison. No live-tenant
 validation claim.
 
 Package SemVer is independent of machine-contract versions
-(`purview-governance-config/v1` + `/v2`, `purview-remote-state/v1` + `/v2`,
-`purview-governance-plan/v1` + `/v2`, `purview-execution-result/v1` + `/v2`).
+(`purview-governance-config/v1` + `/v2` + `/v3`, `purview-remote-state/v1` + `/v2`
++ `/v3`, `purview-governance-plan/v1` + `/v2` + `/v3`,
+`purview-execution-result/v1` + `/v2` + `/v3`).
 Contract v1 remains frozen for package `1.0.0` compatibility; contract v2 is the
-multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
+multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
 
 ## Status
 
@@ -59,10 +63,14 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
   `enumerate_data_assets()`, opt-in `query_data_columns()`, and relationship list
   helpers (PagedDomain / PagedDataProduct / PagedTerm pagination; Data Column POST
   query with nextLink-aware termination)
-- **Business Domains + Data Products + Glossary Terms** declarative config/remote/diff/plan/apply via
-  contract **v3** (`purview-governance-config/v3`, `purview-remote-state/v3`,
+- **Business Domains + Data Products + Glossary Terms** declarative
+  config/remote/diff/plan/apply via contract **v3**
+  (`purview-governance-config/v3`, `purview-remote-state/v3`,
   `purview-governance-plan/v3`, `purview-execution-result/v3`) — **controlled apply**
-  for supported mutations only (see capability matrix below)
+  for supported mutations only (see safety model below)
+- **CLI v3** for the same workflows: validate, capture, plan create (paired
+  `--remote-state-output`), plan inspect, dry-run / `--apply` (requires local
+  `--remote-state`; `--credential` required for ready plans), result inspect
 - default remote capture remains **Business Domain–only** (Shape A, PR2
   compatible); Data Product capture is **opt-in**
   (`include_data_products=True`, Shape B); Glossary Term capture is **opt-in**
@@ -104,10 +112,12 @@ multi-resource surface used by v1.1. See [CHANGELOG.md](CHANGELOG.md).
 
 Default CI and reviewer flows exercise the Scanning client, remote-state capture,
 plan build, dry-run, and authorized apply against a deterministic local HTTP
-contract server, and the Unified Catalog foundation against a separate loopback
-contract server. This does **not** contact a live Microsoft Purview account and
-does **not** claim live-tenant validation. Offline contract tests are not a
-substitute for production validation against Microsoft Purview.
+contract server, and the Unified Catalog foundation (including CLI v3) against a
+separate loopback contract server. This does **not** contact a live Microsoft
+Purview account and does **not** claim live-tenant validation. Offline contract
+tests are not a substitute for production validation against Microsoft Purview.
+UC surfaces are **Public Preview**, **permission-scoped**, and
+**offline contract-tested**.
 
 ### Not claimed / not implemented
 
@@ -116,7 +126,6 @@ substitute for production validation against Microsoft Purview.
   Custom / AzureStorageMsi slice
 - Unified Catalog apply beyond bounded PR6 support (BD CREATE, parent-clear, deletes,
   assets/columns/relationships writes)
-- Unified Catalog CLI commands
 - automatic deletes
 - automatic retries
 - rollback
@@ -138,7 +147,7 @@ Dry-run is the default. Mutation requires explicit opt-in (`ExecutionMode.APPLY`
 staleness gate. No automatic deletes. No automatic retries. No rollback.
 Unsupported material fails closed.
 
-Preflight order (fail-closed; zero PUT until complete):
+Preflight order (fail-closed; zero PUT until complete) — Scanning:
 
 1. revalidate plan document
 2. validate exact `ExecutionMode`
@@ -150,6 +159,10 @@ Preflight order (fail-closed; zero PUT until complete):
 7. compare `materialStateIdentity` to `plan.identities.remoteState`
 8. dry-run (ready, zero PUT) or apply (sequential PUTs)
 
+Unified Catalog apply/v3 additionally requires the paired planned remote-state
+artifact, tenant-bound authorization for ready plans, and bounded write
+capabilities (see CHANGELOG / PR6 docs).
+
 Write outcome classification:
 
 - HTTP **200/201** → confirmed write (`writesPerformed`), independent of response body
@@ -159,11 +172,13 @@ Write outcome classification:
 - token acquisition failure when starting a mutation (before `_send`) →
   `write-failed` / `apply.write_auth_failed` (deterministic; may follow a
   successful write prefix)
+- after successful writes, a later pre-write interruption → `partial` (exit **6**;
+  contiguous successful prefix; not claimed complete)
 
 No automatic retry. No auto-replan. Residual TOCTOU between final GET and first
 PUT is documented; v1 does not use ETags/CAS.
 
-`writesAttempted` means the apply service initiated the PUT primitive after
+`writesAttempted` means the apply service initiated the PUT/POST primitive after
 preflight — not proof the server received bytes.
 
 ## Execution result provenance
@@ -178,8 +193,11 @@ requires mismatched target identities and null observed remote;
 `applied`/`write-failed`/`indeterminate`/`dry-run-ready` require
 observed == planned remote identity). Result/v2 carries multi-resource operation
 rows (including composite Scan identity via `dataSourceName`).
+Result/v3 uses `resourceId` and may report `partial`.
 
 ## CLI
+
+Scanning (v1/v2):
 
 ```text
 purview-governance config validate CONFIG [--json]
@@ -191,34 +209,68 @@ purview-governance apply PLAN --apply [--result result.json] [--force] [--json]
 purview-governance result inspect RESULT [--json]
 ```
 
+Unified Catalog (v3) — pair artifacts + credential gating:
+
+```text
+purview-governance config validate CONFIG [--json]
+purview-governance remote-state capture CONFIG --output remote.json [--credential SELECTOR] [--force]
+purview-governance plan create CONFIG --output plan.json --remote-state-output remote.json [--credential SELECTOR] [--force]
+purview-governance plan inspect PLAN [--json]
+purview-governance apply PLAN --remote-state remote.json [--credential SELECTOR] [--result result.json] [--json]
+purview-governance apply PLAN --apply --remote-state remote.json --credential SELECTOR [--result result.json] [--force] [--json]
+purview-governance result inspect RESULT [--json]
+```
+
+`--credential` selectors: `azure-cli`, `azure-developer-cli`, `client-secret`,
+`certificate`.
+
+- **Optional** on v3 read-only paths (`remote-state capture`, `plan create`) —
+  omit to use `DefaultAzureCredential`.
+- **Required** on ready plan/v3 apply (dry-run or `--apply`).
+- **Not required** on blocked plan/v3 apply (sentinel provider; zero token/HTTP).
+- **Unsupported** on v1/v2 (`cli.credential_flag_unsupported`).
+
+Client-secret / certificate material (when selected): `AZURE_CLIENT_ID`,
+`AZURE_CLIENT_SECRET`, and/or `AZURE_CLIENT_CERTIFICATE_PATH` (+ optional
+`AZURE_CLIENT_CERTIFICATE_PASSWORD`). Tenant always comes from config/plan
+`tenantId` — never from `AZURE_TENANT_ID`.
+
+`plan create` for config/v3 requires `--remote-state-output`. Persistence of the
+remote + plan pair is **fail-closed** and **not atomic** (if plan write fails
+after a new remote file was created, the CLI attempts to remove that new remote).
+
 ### CLI capture semantics (important)
 
-These commands are **not** a chained artifact pipeline:
+Scanning commands are **not** a chained artifact pipeline:
 
 - `remote-state capture` performs a read-only capture and writes an independent
   snapshot useful for inspection/audit. That file is **not** an input to
-  `plan create`.
-- `plan create CONFIG` performs a **fresh** remote capture, runs the
+  Scanning `plan create`.
+- Scanning `plan create CONFIG` performs a **fresh** remote capture, runs the
   desired-vs-remote comparison internally, and writes a deterministic plan.
-  There is no CLI `diff` command; comparison evidence is embedded in the plan
-  and visible via `plan inspect` (`summary` / `operations` / `blockedFindings`).
-- `apply PLAN` performs another **fresh** remote capture for the staleness gate
-  before any write (dry-run or `--apply`).
+- Scanning `apply PLAN` performs another **fresh** remote capture for the
+  staleness gate before any write (dry-run or `--apply`).
 
-Apply builds the Scanning client from the **plan** target endpoint (no external
-config required for desired payload). `--force` never allows overwriting an input
-artifact (plan/config). Output destination is preflight-checked before network.
+Unified Catalog **does** pair artifacts:
+
+- `plan create` writes the capture used for planning to `--remote-state-output`.
+- `apply` requires that same planned remote via `--remote-state` (plus a fresh
+  capture inside the executor for staleness).
+
+Apply builds the client from the **plan** target (Scanning endpoint or UC
+production endpoint). `--force` never allows overwriting an input artifact.
+Output destination is preflight-checked before network.
 
 ### Reviewer flow (conceptual)
 
-Independent evidence:
+Scanning independent evidence:
 
 ```text
 config validate
 remote-state capture   →  remote.json (audit snapshot only)
 ```
 
-Plan and controlled apply (each step that needs remote state re-captures):
+Scanning plan and controlled apply:
 
 ```text
 config
@@ -232,6 +284,9 @@ config
 → apply --apply        (no-op; writesAttempted == 0)
 ```
 
+Unified Catalog (v3) — see
+[docs/unified-catalog-reviewer-workflow.md](docs/unified-catalog-reviewer-workflow.md).
+
 ### Exit codes
 
 | Code | Meaning |
@@ -241,7 +296,7 @@ config
 | 3 | input/contract/path validation |
 | 4 | blocked / wrong-target / stale |
 | 5 | failed-before-write (auth/read/preflight) |
-| 6 | write-failed / indeterminate / unexpected APPLY internal failure |
+| 6 | write-failed / indeterminate / partial / unexpected APPLY internal failure |
 | 7 | local artifact persistence failure after execution |
 
 An unexpected internal failure during `--apply` (exit 6) must not be treated as
@@ -255,9 +310,10 @@ exit 5.
 pip install -e ".[dev]"
 pytest tests/cli/test_offline_v1_workflow.py -v
 pytest tests/cli/test_offline_v2_workflow.py -v
+pytest tests/cli/test_offline_v3_workflow.py -v
 ```
 
-Both exercises run against the loopback contract server via a package-private CLI
+These exercises run against loopback contract servers via a package-private CLI
 dependency seam. They do not require Azure credentials and do not expose public
 `--base-url` / `--insecure` flags.
 
@@ -266,6 +322,9 @@ dependency seam. They do not require Azure credentials and do not expose public
   (validate → independent remote capture → plan create/inspect → dry-run →
   explicit apply → result inspect → empty re-plan → no-op apply). Demonstrates
   convergence after successful apply.
+- **v3** — Unified Catalog path (seeded domains + drifted data product + absent
+  glossary terms → paired remote/plan → dry-run → apply with PUT + parent/child
+  POSTs → convergence). See reviewer guide.
 
 ## Quick start (clean checkout)
 
@@ -287,14 +346,13 @@ Fictional sample configs:
 
 - `examples/fictional-governance-config.yaml` (config/v1)
 - `examples/fictional-governance-config-v2.yaml` (config/v2 multi-resource)
-- `examples/fictional-governance-config-v3.yaml` (config/v3 Unified Catalog Business Domains)
+- `examples/fictional-governance-config-v3.yaml` (config/v3 Unified Catalog)
 
 ```powershell
 purview-governance config validate examples/fictional-governance-config.yaml
 purview-governance config validate examples/fictional-governance-config-v2.yaml
+purview-governance config validate examples/fictional-governance-config-v3.yaml
 ```
-
-Config v3 validates via library API (`validate_config_v3_file`) — no CLI UC workflow yet.
 
 ## Repository structure
 
@@ -303,7 +361,8 @@ src/purview_governance/
   auth/ config/ desired/ diff/ plan/ remote_state/ scanning/ unified_catalog/ apply/
   cli.py
 examples/
-tests/   # unit, api_contract, cli offline workflows (v1 + v2); v3 library tests
+tests/   # unit, api_contract, cli offline workflows (v1 + v2 + v3)
+docs/    # UC reviewer workflow + contract-discovery notes
 .github/workflows/ci.yml
 CHANGELOG.md
 ```

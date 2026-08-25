@@ -226,8 +226,15 @@ jobs:
           python -m purview_governance --help | grep -F "purview-governance"
           printf '%s\n' 'apiVersion: purview-governance-config/v1' 'target:' '  endpoint: https://contoso-fictional.purview.azure.com' 'authentication:' '  strategy: defaultAzureCredential' 'resources: []' > fictional.yaml
           purview-governance config validate fictional.yaml | grep -F "config valid"
-          # Validate the public v2 example from the checkout (examples/ are not in the wheel).
+          # Validate the public v2/v3 examples from the checkout (examples/ are not in the wheel).
           purview-governance config validate "$GITHUB_WORKSPACE/examples/fictional-governance-config-v2.yaml" | grep -F "config valid"
+          purview-governance config validate "$GITHUB_WORKSPACE/examples/fictional-governance-config-v3.yaml" | grep -F "config valid"
+          purview-governance plan create --help | grep -F -- "--remote-state-output"
+          purview-governance apply --help | grep -F -- "--remote-state"
+          purview-governance apply --help | grep -F -- "--credential"
+          purview-governance apply --help | grep -F -- "--apply"
+          purview-governance apply --help | grep -F -- "--result"
+          purview-governance result inspect --help >/dev/null
           python -c "from pathlib import Path; from purview_governance.apply import ExecutionMode, build_execution_result_from_parts; from purview_governance.config import validate_config_text; from purview_governance.plan import build_governance_plan; from purview_governance.remote_state import build_remote_state; cfg=validate_config_text(Path('fictional.yaml').read_text(encoding='utf-8'), format_hint='yaml'); plan=build_governance_plan(cfg, build_remote_state((), ())); Path('plan.json').write_text(plan.to_canonical_json(), encoding='utf-8'); h=plan.plan_identity; result=build_execution_result_from_parts(plan_identity=h, planned_target_context_identity=plan.target_context.identity, execution_target_context_identity=plan.target_context.identity, planned_remote_state_identity=plan.identities.remote_state, observed_remote_state_identity=plan.identities.remote_state, mode=ExecutionMode.DRY_RUN, status='dry-run-ready', writes_performed=0, writes_attempted=0, writes_unknown=0, operations=(), failure=None); Path('result.json').write_text(result.to_canonical_json(), encoding='utf-8'); print('artifacts-ok', plan.plan_identity, result.result_identity)"
           purview-governance plan inspect plan.json | grep -F "planIdentity:"
           purview-governance result inspect result.json | grep -F "resultIdentity:"

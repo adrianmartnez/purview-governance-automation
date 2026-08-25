@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from purview_governance.apply.models import ExecutionResult
 from purview_governance.apply.models_v2 import ExecutionResultV2, OperationResultV2
+from purview_governance.apply.models_v3 import ExecutionResultV3, OperationResultV3
 
 
-def format_execution_result_summary(result: ExecutionResult | ExecutionResultV2) -> str:
+def format_execution_result_summary(
+    result: ExecutionResult | ExecutionResultV2 | ExecutionResultV3,
+) -> str:
     """Return a deterministic plain-text summary (no ANSI/timestamps/secrets)."""
     failure_code = "null" if result.failure is None else result.failure.code
     lines: list[str] = [
@@ -29,11 +32,14 @@ def format_execution_result_summary(result: ExecutionResult | ExecutionResultV2)
         lines.append("  (none)")
     else:
         for operation in result.operations:
-            identity = f"{operation.resource_type}/{operation.name}"
-            if isinstance(operation, OperationResultV2) and operation.resource_type == "scan":
+            if isinstance(operation, OperationResultV3):
+                identity = f"{operation.resource_type}/{operation.resource_id}"
+            elif isinstance(operation, OperationResultV2) and operation.resource_type == "scan":
                 identity = (
                     f"{operation.resource_type}/{operation.data_source_name}/{operation.name}"
                 )
+            else:
+                identity = f"{operation.resource_type}/{operation.name}"
             lines.append(
                 f"  {operation.sequence}. {operation.action} {identity} status={operation.status}"
             )
