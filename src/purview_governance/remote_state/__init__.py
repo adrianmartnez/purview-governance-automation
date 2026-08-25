@@ -1,5 +1,7 @@
 """Read-only Purview remote-state (purview-remote-state/v1, /v2, and /v3)."""
 
+from __future__ import annotations
+
 from purview_governance.remote_state.canonical import dumps_canonical
 from purview_governance.remote_state.errors import RemoteStateError
 from purview_governance.remote_state.models import (
@@ -45,6 +47,22 @@ from purview_governance.remote_state.service import (
     capture_unified_catalog_remote_state_v3,
 )
 
+# Lazy: loader_v3 imports plan.identity; avoid circular import via package __init__.
+_LAZY_EXPORTS = {
+    "load_remote_state_v3_file": "purview_governance.remote_state.loader_v3",
+    "load_remote_state_v3_text": "purview_governance.remote_state.loader_v3",
+}
+
+
+def __getattr__(name: str) -> object:
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    module = importlib.import_module(_LAZY_EXPORTS[name])
+    return getattr(module, name)
+
+
 __all__ = [
     "REMOTE_STATE_API_VERSION",
     "REMOTE_STATE_API_VERSION_V2",
@@ -80,6 +98,8 @@ __all__ = [
     "dumps_canonical",
     "load_remote_state_v1_schema",
     "load_remote_state_v2_schema",
+    "load_remote_state_v3_file",
     "load_remote_state_v3_schema",
+    "load_remote_state_v3_text",
     "remote_observed_count_v3",
 ]

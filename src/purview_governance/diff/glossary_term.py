@@ -109,8 +109,8 @@ def _property_change_reasons(
             reason(
                 "properties.description.changed",
                 "/properties/description",
-                before=remote_props["description"],
-                after=desired.description,
+                before=canonical_json_scalar(remote_props["description"]),
+                after=canonical_json_scalar(desired.description),
             )
         )
 

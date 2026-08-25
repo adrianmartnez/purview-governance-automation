@@ -1,4 +1,4 @@
-"""argparse CLI for purview-governance v1/v2 workflows."""
+"""argparse CLI for purview-governance v1/v2/v3 workflows."""
 
 from __future__ import annotations
 
@@ -18,28 +18,59 @@ from purview_governance.apply import (
     ExecutionResult,
     ExecutionResultError,
     ExecutionResultV2,
+    ExecutionResultV3,
     execute_governance_plan,
+    execute_governance_plan_v3,
     format_execution_result_summary,
     load_execution_result_file,
 )
-from purview_governance.auth import create_default_azure_credential_provider
+from purview_governance.auth import (
+    PurviewAuthorizationProvider,
+    TenantBoundAuthorizationProvider,
+    create_default_azure_credential_provider,
+)
 from purview_governance.auth.errors import AuthenticationError
+from purview_governance.auth.tenant_bound import TenantBindingUnsupportedError
+from purview_governance.cli_auth import (
+    CREDENTIAL_SELECTORS,
+    _build_azure_credential,
+    _CliCredentialMaterialError,
+    _SentinelAuthorizationProvider,
+)
 from purview_governance.cli_paths import paths_conflict, resolve_path
-from purview_governance.config import validate_config_file
+from purview_governance.config import (
+    GovernanceConfig,
+    GovernanceConfigV3,
+    validate_config_dict,
+    validate_config_v3_dict,
+)
 from purview_governance.config.diagnostics import ConfigValidationError
+from purview_governance.config.loader import load_config_file
 from purview_governance.config.models import CONFIG_API_VERSION_V2
+from purview_governance.config.models_v3 import CONFIG_API_VERSION_V3
 from purview_governance.plan import (
     PlanError,
     build_governance_plan,
     build_governance_plan_v2,
+    build_governance_plan_v3,
     format_plan_summary,
-    load_plan_file,
 )
-from purview_governance.remote_state import capture_remote_state, capture_remote_state_v2
+from purview_governance.plan.loader import _load_plan_any_version_file
+from purview_governance.plan.models import GovernancePlan
+from purview_governance.plan.models_v3 import GovernancePlanV3
+from purview_governance.remote_state import (
+    capture_remote_state,
+    capture_remote_state_v2,
+    capture_unified_catalog_remote_state_v3,
+)
 from purview_governance.remote_state.canonical import dumps_canonical
 from purview_governance.remote_state.errors import RemoteStateError
+from purview_governance.remote_state.loader_v3 import load_remote_state_v3_file
 from purview_governance.scanning import PurviewScanningClient
 from purview_governance.scanning.errors import PurviewClientError
+from purview_governance.unified_catalog.client import PurviewUnifiedCatalogClient
+from purview_governance.unified_catalog.constants import UNIFIED_CATALOG_PRODUCTION_ENDPOINT
+from purview_governance.unified_catalog.errors import UnifiedCatalogClientError
 
 EXIT_SUCCESS = 0
 EXIT_USAGE = 2
@@ -49,12 +80,20 @@ EXIT_PREWRITE = 5
 EXIT_WRITE = 6
 EXIT_PERSIST = 7
 
+GovernanceConfigAny = GovernanceConfig | GovernanceConfigV3
+GovernancePlanAny = GovernancePlan | GovernancePlanV3
+ExecutionResultAny = ExecutionResult | ExecutionResultV2 | ExecutionResultV3
+
 
 @dataclass(frozen=True, slots=True)
 class _CliDependencies:
     """Package-private injectable dependencies (not a public CLI surface)."""
 
     scanning_client_factory: Callable[[str], PurviewScanningClient] | None = None
+    unified_catalog_client_factory: (
+        Callable[[str, PurviewAuthorizationProvider], PurviewUnifiedCatalogClient] | None
+    ) = None
+    credential_provider_factory: Callable[..., PurviewAuthorizationProvider] | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     remote_capture.add_argument("config")
     remote_capture.add_argument("--output", required=True)
     remote_capture.add_argument("--force", action="store_true")
+    _add_credential_flag(remote_capture)
 
     plan_parser = sub.add_parser("plan", help="Plan workflows")
     plan_sub = plan_parser.add_subparsers(dest="plan_command", required=True)
@@ -97,6 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
     plan_create.add_argument("config")
     plan_create.add_argument("--output", required=True)
     plan_create.add_argument("--force", action="store_true")
+    plan_create.add_argument(
+        "--remote-state-output",
+        dest="remote_state_output",
+        help="Required for config/v3: persist the captured remote-state before the plan",
+    )
+    _add_credential_flag(plan_create)
     plan_inspect = plan_sub.add_parser("inspect", help="Inspect a saved governance plan")
     plan_inspect.add_argument("plan")
     plan_inspect.add_argument("--json", action="store_true", dest="as_json")
@@ -112,6 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--result", dest="result_path")
     apply_parser.add_argument("--force", action="store_true")
     apply_parser.add_argument("--json", action="store_true", dest="as_json")
+    apply_parser.add_argument(
+        "--remote-state",
+        dest="remote_state",
+        help="Required for plan/v3: local planned remote-state artifact",
+    )
+    _add_credential_flag(apply_parser)
 
     result_parser = sub.add_parser("result", help="Execution-result workflows")
     result_sub = result_parser.add_subparsers(dest="result_command", required=True)
@@ -120,6 +172,18 @@ def build_parser() -> argparse.ArgumentParser:
     result_inspect.add_argument("--json", action="store_true", dest="as_json")
 
     return parser
+
+
+def _add_credential_flag(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--credential",
+        choices=CREDENTIAL_SELECTORS,
+        default=None,
+        help=(
+            "Explicit credential selector (version-gated). "
+            "Required for ready plan/v3 apply; optional for v3 read-only capture/plan."
+        ),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -156,11 +220,24 @@ def _dispatch(args: argparse.Namespace, deps: _CliDependencies) -> int:
     return EXIT_USAGE
 
 
+def _config_validation_error_code(exc: ConfigValidationError) -> str:
+    if exc.diagnostics:
+        return exc.diagnostics[0].code
+    return "cli.config_invalid"
+
+
+def _load_validated_config(path: str) -> GovernanceConfigAny:
+    document = load_config_file(path)
+    if document.get("apiVersion") == CONFIG_API_VERSION_V3:
+        return validate_config_v3_dict(document)
+    return validate_config_dict(document)
+
+
 def _cmd_config_validate(args: argparse.Namespace) -> int:
     try:
-        config = validate_config_file(args.config)
+        config = _load_validated_config(args.config)
     except ConfigValidationError as exc:
-        return _print_error(exc.code, EXIT_VALIDATION)
+        return _print_error(_config_validation_error_code(exc), EXIT_VALIDATION)
     except OSError:
         return _print_error("cli.input_not_found", EXIT_VALIDATION)
     if args.as_json:
@@ -172,18 +249,38 @@ def _cmd_config_validate(args: argparse.Namespace) -> int:
 
 def _cmd_remote_capture(args: argparse.Namespace, deps: _CliDependencies) -> int:
     try:
-        _validate_output_vs_input(args.config, args.output, force=args.force)
-        config = validate_config_file(args.config)
+        config = _load_validated_config(args.config)
     except ConfigValidationError as exc:
-        return _print_error(exc.code, EXIT_VALIDATION)
-    except _CliLocalError as exc:
-        return _print_error(exc.code, EXIT_VALIDATION)
+        return _print_error(_config_validation_error_code(exc), EXIT_VALIDATION)
     except OSError:
         return _print_error("cli.input_not_found", EXIT_VALIDATION)
 
+    credential = getattr(args, "credential", None)
+    if config.api_version != CONFIG_API_VERSION_V3:
+        if credential is not None:
+            return _print_error("cli.credential_flag_unsupported", EXIT_VALIDATION)
+        try:
+            _validate_output_vs_input(args.config, args.output, force=args.force)
+        except _CliLocalError as exc:
+            return _print_error(exc.code, EXIT_VALIDATION)
+        return _cmd_remote_capture_scanning(args, deps, config)
+
+    try:
+        _validate_output_vs_input(args.config, args.output, force=args.force)
+    except _CliLocalError as exc:
+        return _print_error(exc.code, EXIT_VALIDATION)
+    assert isinstance(config, GovernanceConfigV3)
+    return _cmd_remote_capture_v3(args, deps, config, credential=credential)
+
+
+def _cmd_remote_capture_scanning(
+    args: argparse.Namespace,
+    deps: _CliDependencies,
+    config: GovernanceConfig,
+) -> int:
     client = None
     try:
-        client = _build_client(config.target.endpoint, deps)
+        client = _build_scanning_client(config.target.endpoint, deps)
         if config.api_version == CONFIG_API_VERSION_V2:
             remote = capture_remote_state_v2(client)
         else:
@@ -203,20 +300,97 @@ def _cmd_remote_capture(args: argparse.Namespace, deps: _CliDependencies) -> int
     return EXIT_SUCCESS
 
 
+def _cmd_remote_capture_v3(
+    args: argparse.Namespace,
+    deps: _CliDependencies,
+    config: GovernanceConfigV3,
+    *,
+    credential: str | None,
+) -> int:
+    client = None
+    try:
+        provider = _build_read_auth_provider(
+            deps,
+            credential_selector=credential,
+            tenant_id=config.target.tenant_id,
+        )
+        client = _build_unified_catalog_client(
+            UNIFIED_CATALOG_PRODUCTION_ENDPOINT,
+            provider,
+            deps,
+        )
+        remote = capture_unified_catalog_remote_state_v3(
+            client,
+            tenant_id=config.target.tenant_id,
+            include_data_products=bool(config.data_products),
+            include_glossary_terms=bool(config.glossary_terms),
+        )
+        _write_atomic(args.output, dumps_canonical(remote.to_document()), force=args.force)
+    except _CliCredentialMaterialError as exc:
+        return _print_error(exc.code, EXIT_PREWRITE)
+    except AuthenticationError:
+        return _print_error("cli.authentication_failed", EXIT_PREWRITE)
+    except (RemoteStateError, UnifiedCatalogClientError):
+        return _print_error("cli.remote_read_failed", EXIT_PREWRITE)
+    except _CliLocalError as exc:
+        return _print_error(
+            exc.code, EXIT_PERSIST if exc.code == "cli.result_persist_failed" else EXIT_VALIDATION
+        )
+    finally:
+        if client is not None:
+            client.close()
+    return EXIT_SUCCESS
+
+
 def _cmd_plan_create(args: argparse.Namespace, deps: _CliDependencies) -> int:
     try:
-        _validate_output_vs_input(args.config, args.output, force=args.force)
-        config = validate_config_file(args.config)
+        config = _load_validated_config(args.config)
     except ConfigValidationError as exc:
-        return _print_error(exc.code, EXIT_VALIDATION)
-    except _CliLocalError as exc:
-        return _print_error(exc.code, EXIT_VALIDATION)
+        return _print_error(_config_validation_error_code(exc), EXIT_VALIDATION)
     except OSError:
         return _print_error("cli.input_not_found", EXIT_VALIDATION)
 
+    credential = getattr(args, "credential", None)
+    remote_state_output = getattr(args, "remote_state_output", None)
+
+    if config.api_version != CONFIG_API_VERSION_V3:
+        if credential is not None:
+            return _print_error("cli.credential_flag_unsupported", EXIT_VALIDATION)
+        if remote_state_output is not None:
+            return _print_error("cli.remote_state_output_unsupported", EXIT_VALIDATION)
+        try:
+            _validate_output_vs_input(args.config, args.output, force=args.force)
+        except _CliLocalError as exc:
+            return _print_error(exc.code, EXIT_VALIDATION)
+        return _cmd_plan_create_scanning(args, deps, config)
+
+    if remote_state_output is None:
+        return _print_error("cli.remote_state_output_required", EXIT_VALIDATION)
+    try:
+        _validate_output_vs_input(args.config, args.output, force=args.force)
+        _validate_output_vs_input(args.config, remote_state_output, force=args.force)
+        if paths_conflict(args.output, remote_state_output):
+            raise _CliLocalError("cli.output_aliases_input")
+    except _CliLocalError as exc:
+        return _print_error(exc.code, EXIT_VALIDATION)
+    assert isinstance(config, GovernanceConfigV3)
+    return _cmd_plan_create_v3(
+        args,
+        deps,
+        config,
+        credential=credential,
+        remote_state_output=remote_state_output,
+    )
+
+
+def _cmd_plan_create_scanning(
+    args: argparse.Namespace,
+    deps: _CliDependencies,
+    config: GovernanceConfig,
+) -> int:
     client = None
     try:
-        client = _build_client(config.target.endpoint, deps)
+        client = _build_scanning_client(config.target.endpoint, deps)
         if config.api_version == CONFIG_API_VERSION_V2:
             remote = capture_remote_state_v2(client)
             plan = build_governance_plan_v2(config, remote)
@@ -241,9 +415,70 @@ def _cmd_plan_create(args: argparse.Namespace, deps: _CliDependencies) -> int:
     return EXIT_SUCCESS
 
 
+def _cmd_plan_create_v3(
+    args: argparse.Namespace,
+    deps: _CliDependencies,
+    config: GovernanceConfigV3,
+    *,
+    credential: str | None,
+    remote_state_output: str,
+) -> int:
+    client = None
+    remote_path = resolve_path(remote_state_output)
+    remote_existed = remote_path.exists()
+    try:
+        provider = _build_read_auth_provider(
+            deps,
+            credential_selector=credential,
+            tenant_id=config.target.tenant_id,
+        )
+        client = _build_unified_catalog_client(
+            UNIFIED_CATALOG_PRODUCTION_ENDPOINT,
+            provider,
+            deps,
+        )
+        remote = capture_unified_catalog_remote_state_v3(
+            client,
+            tenant_id=config.target.tenant_id,
+            include_data_products=bool(config.data_products),
+            include_glossary_terms=bool(config.glossary_terms),
+        )
+        plan = build_governance_plan_v3(config, remote)
+        _write_atomic(
+            remote_state_output,
+            dumps_canonical(remote.to_document()),
+            force=args.force,
+        )
+        try:
+            _write_atomic(args.output, plan.to_canonical_json(), force=args.force)
+        except _CliLocalError:
+            if not remote_existed:
+                with contextlib.suppress(OSError):
+                    if remote_path.is_file():
+                        remote_path.unlink()
+            return _print_error("cli.result_persist_failed", EXIT_PERSIST)
+        print(format_plan_summary(plan), end="")
+    except _CliCredentialMaterialError as exc:
+        return _print_error(exc.code, EXIT_PREWRITE)
+    except AuthenticationError:
+        return _print_error("cli.authentication_failed", EXIT_PREWRITE)
+    except (RemoteStateError, UnifiedCatalogClientError):
+        return _print_error("cli.remote_read_failed", EXIT_PREWRITE)
+    except PlanError:
+        return _print_error("cli.plan_build_failed", EXIT_VALIDATION)
+    except _CliLocalError as exc:
+        return _print_error(
+            exc.code, EXIT_PERSIST if exc.code == "cli.result_persist_failed" else EXIT_VALIDATION
+        )
+    finally:
+        if client is not None:
+            client.close()
+    return EXIT_SUCCESS
+
+
 def _cmd_plan_inspect(args: argparse.Namespace) -> int:
     try:
-        plan = load_plan_file(args.plan)
+        plan = _load_plan_any_version_file(args.plan)
     except PlanError as exc:
         return _print_error(exc.code, EXIT_VALIDATION)
     except OSError:
@@ -257,23 +492,57 @@ def _cmd_plan_inspect(args: argparse.Namespace) -> int:
 
 def _cmd_apply(args: argparse.Namespace, deps: _CliDependencies) -> int:
     result_path = args.result_path
+    remote_state_path = getattr(args, "remote_state", None)
+    credential = getattr(args, "credential", None)
     try:
-        if result_path:
-            _validate_output_vs_input(args.plan, result_path, force=args.force)
-            _preflight_output_destination(result_path, force=args.force)
-        plan = load_plan_file(args.plan)
+        plan = _load_plan_any_version_file(args.plan)
     except PlanError as exc:
-        return _print_error(exc.code, EXIT_VALIDATION)
-    except _CliLocalError as exc:
         return _print_error(exc.code, EXIT_VALIDATION)
     except OSError:
         return _print_error("cli.input_not_found", EXIT_VALIDATION)
 
+    if not isinstance(plan, GovernancePlanV3):
+        if remote_state_path is not None:
+            return _print_error("cli.remote_state_flag_unsupported", EXIT_VALIDATION)
+        if credential is not None:
+            return _print_error("cli.credential_flag_unsupported", EXIT_VALIDATION)
+        try:
+            if result_path:
+                _validate_output_vs_input(args.plan, result_path, force=args.force)
+                _preflight_output_destination(result_path, force=args.force)
+        except _CliLocalError as exc:
+            return _print_error(exc.code, EXIT_VALIDATION)
+        return _cmd_apply_scanning(args, deps, plan)
+
+    if remote_state_path is None:
+        return _print_error("cli.remote_state_required", EXIT_VALIDATION)
+    try:
+        if result_path:
+            _validate_output_vs_input(args.plan, result_path, force=args.force)
+            _validate_output_vs_input(remote_state_path, result_path, force=args.force)
+            _preflight_output_destination(result_path, force=args.force)
+    except _CliLocalError as exc:
+        return _print_error(exc.code, EXIT_VALIDATION)
+    return _cmd_apply_v3(
+        args,
+        deps,
+        plan,
+        remote_state_path=remote_state_path,
+        credential=credential,
+    )
+
+
+def _cmd_apply_scanning(
+    args: argparse.Namespace,
+    deps: _CliDependencies,
+    plan: GovernancePlan,
+) -> int:
+    result_path = args.result_path
     mode = ExecutionMode.APPLY if args.authorize_apply else ExecutionMode.DRY_RUN
     client = None
     result: ExecutionResult | ExecutionResultV2 | None = None
     try:
-        client = _build_client(plan.target_context.endpoint, deps)
+        client = _build_scanning_client(plan.target_context.endpoint, deps)
         result = execute_governance_plan(plan, client, mode=mode)
     except ApplyValidationError as exc:
         return _print_error(exc.code, EXIT_VALIDATION)
@@ -290,6 +559,75 @@ def _cmd_apply(args: argparse.Namespace, deps: _CliDependencies) -> int:
             client.close()
 
     assert result is not None
+    return _finish_apply(args, result, result_path=result_path)
+
+
+def _cmd_apply_v3(
+    args: argparse.Namespace,
+    deps: _CliDependencies,
+    plan: GovernancePlanV3,
+    *,
+    remote_state_path: str,
+    credential: str | None,
+) -> int:
+    result_path = args.result_path
+    mode = ExecutionMode.APPLY if args.authorize_apply else ExecutionMode.DRY_RUN
+
+    try:
+        planned_remote = load_remote_state_v3_file(remote_state_path)
+    except RemoteStateError as exc:
+        return _print_error(exc.code, EXIT_VALIDATION)
+    except OSError:
+        return _print_error("cli.input_not_found", EXIT_VALIDATION)
+
+    client = None
+    result: ExecutionResultV3 | None = None
+    try:
+        if plan.execution_eligibility == "blocked":
+            provider: PurviewAuthorizationProvider = _SentinelAuthorizationProvider()
+        else:
+            if credential is None:
+                return _print_error("cli.credential_required", EXIT_VALIDATION)
+            try:
+                provider = _build_apply_auth_provider(
+                    deps,
+                    credential_selector=credential,
+                    tenant_id=plan.target_context.tenant_id,
+                    endpoint=plan.target_context.endpoint,
+                )
+            except _CliCredentialMaterialError as exc:
+                return _print_error(exc.code, EXIT_PREWRITE)
+            except TenantBindingUnsupportedError as exc:
+                return _print_error(exc.code, EXIT_PREWRITE)
+
+        client = _build_unified_catalog_client(
+            plan.target_context.endpoint,
+            provider,
+            deps,
+        )
+        result = execute_governance_plan_v3(plan, planned_remote, client, mode=mode)
+    except ApplyValidationError as exc:
+        return _print_error(exc.code, EXIT_VALIDATION)
+    except AuthenticationError:
+        return _print_error("cli.authentication_failed", EXIT_PREWRITE)
+    except Exception:
+        if mode is ExecutionMode.APPLY:
+            return _print_error("cli.apply_internal_failure", EXIT_WRITE)
+        return _print_error("cli.apply_failed", EXIT_PREWRITE)
+    finally:
+        if client is not None:
+            client.close()
+
+    assert result is not None
+    return _finish_apply(args, result, result_path=result_path)
+
+
+def _finish_apply(
+    args: argparse.Namespace,
+    result: ExecutionResultAny,
+    *,
+    result_path: str | None,
+) -> int:
     persist_failed = False
     if result_path:
         try:
@@ -323,21 +661,71 @@ def _cmd_result_inspect(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS
 
 
-def _build_client(endpoint: str, deps: _CliDependencies) -> PurviewScanningClient:
+def _build_scanning_client(endpoint: str, deps: _CliDependencies) -> PurviewScanningClient:
     if deps.scanning_client_factory is not None:
         return deps.scanning_client_factory(endpoint)
     provider = create_default_azure_credential_provider()
     return PurviewScanningClient(endpoint, provider)
 
 
-def _exit_for_result(result: ExecutionResult | ExecutionResultV2) -> int:
+def _build_unified_catalog_client(
+    endpoint: str,
+    provider: PurviewAuthorizationProvider,
+    deps: _CliDependencies,
+) -> PurviewUnifiedCatalogClient:
+    if deps.unified_catalog_client_factory is not None:
+        return deps.unified_catalog_client_factory(endpoint, provider)
+    return PurviewUnifiedCatalogClient(endpoint, provider)
+
+
+def _build_read_auth_provider(
+    deps: _CliDependencies,
+    *,
+    credential_selector: str | None,
+    tenant_id: str,
+) -> PurviewAuthorizationProvider:
+    if deps.credential_provider_factory is not None:
+        return deps.credential_provider_factory(
+            credential_selector,
+            tenant_id=tenant_id,
+            tenant_bound=False,
+        )
+    if credential_selector is None:
+        return create_default_azure_credential_provider()
+    credential = _build_azure_credential(credential_selector, tenant_id=tenant_id)
+    return PurviewAuthorizationProvider(credential)
+
+
+def _build_apply_auth_provider(
+    deps: _CliDependencies,
+    *,
+    credential_selector: str,
+    tenant_id: str,
+    endpoint: str,
+) -> PurviewAuthorizationProvider:
+    if deps.credential_provider_factory is not None:
+        return deps.credential_provider_factory(
+            credential_selector,
+            tenant_id=tenant_id,
+            endpoint=endpoint,
+            tenant_bound=True,
+        )
+    credential = _build_azure_credential(credential_selector, tenant_id=tenant_id)
+    return TenantBoundAuthorizationProvider(
+        credential,
+        tenant_id=tenant_id,
+        endpoint=endpoint,
+    )
+
+
+def _exit_for_result(result: ExecutionResultAny) -> int:
     if result.status in {"dry-run-ready", "applied"}:
         return EXIT_SUCCESS
     if result.status in {"blocked", "wrong-target", "stale"}:
         return EXIT_SAFETY
     if result.status == "failed-before-write":
         return EXIT_PREWRITE
-    if result.status in {"write-failed", "indeterminate"}:
+    if result.status in {"write-failed", "indeterminate", "partial"}:
         return EXIT_WRITE
     return EXIT_VALIDATION
 

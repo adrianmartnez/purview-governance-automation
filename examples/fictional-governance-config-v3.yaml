@@ -1,6 +1,6 @@
 # Fictional sample — not a live Microsoft Purview tenant.
 # Example only: validates against purview-governance-config/v3.
-# Unified Catalog Business Domains + Data Products + Glossary Terms (planning-only; no apply in v1.2).
+# Unified Catalog Business Domains + Data Products + Glossary Terms (config/v3; CLI plan/apply supported).
 apiVersion: purview-governance-config/v3
 target:
   surface: unifiedCatalog
@@ -39,7 +39,7 @@ resources:
       updateFrequency: Monthly
       endorsed: true
   - type: glossaryTerm
-    id: a1e74f902-62f5-49f4-8258-92ed2b8537dd
+    id: a1e74f90-62f5-49f4-8258-92ed2b8537dd
     properties:
       name: fictional-revenue-term
       domain: 7e74f902-62f5-49f4-8258-92ed2b8537ba
@@ -50,11 +50,11 @@ resources:
       acronyms:
         - REV
   - type: glossaryTerm
-    id: b1e74f902-62f5-49f4-8258-92ed2b8537ee
+    id: b1e74f90-62f5-49f4-8258-92ed2b8537ee
     properties:
       name: fictional-net-revenue-term
       domain: 7e74f902-62f5-49f4-8258-92ed2b8537ba
       description: Fictional child term under revenue
-      parentId: a1e74f902-62f5-49f4-8258-92ed2b8537dd
+      parentId: a1e74f90-62f5-49f4-8258-92ed2b8537dd
       owners:
         - id: 11111111-1111-4111-8111-111111111111

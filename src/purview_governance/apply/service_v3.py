@@ -28,7 +28,7 @@ from purview_governance.apply.payloads_v3 import (
 from purview_governance.apply.validation_v3 import validate_result_document_v3_for_serialization
 from purview_governance.auth.errors import AuthenticationError
 from purview_governance.auth.tenant_bound import TenantBindingUnsupportedError
-from purview_governance.plan.errors import PlanError
+from purview_governance.plan.errors import PlanBuildError, PlanError
 from purview_governance.plan.identity import PLAN_API_VERSION_V3
 from purview_governance.plan.models_v3 import GovernancePlanV3, PlanOperationV3
 from purview_governance.plan.validation_v3 import (
@@ -93,13 +93,14 @@ def execute_governance_plan_v3(
 
     try:
         validate_remote_state_for_planning_v3(planned_remote_state)
-    except RemoteStateError:
+    except PlanBuildError:
         return _failed_before_write_v3(
             plan=plan,
             planned_target=planned_target,
             planned_remote=planned_remote,
             mode=mode,
             operations=not_run_ops,
+            execution_target=planned_target,
             code="apply.invalid_remote_state",
         )
 
@@ -110,6 +111,7 @@ def execute_governance_plan_v3(
             planned_remote=planned_remote,
             mode=mode,
             operations=not_run_ops,
+            execution_target=planned_target,
             code="apply.remote_state_identity_mismatch",
         )
 
@@ -120,6 +122,7 @@ def execute_governance_plan_v3(
             planned_remote=planned_remote,
             mode=mode,
             operations=not_run_ops,
+            execution_target=planned_target,
             code="apply.remote_state_identity_mismatch",
         )
 

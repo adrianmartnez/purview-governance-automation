@@ -13,6 +13,29 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Added
 
+- Unified Catalog **CLI v3** workflows: `config validate`, `remote-state capture`,
+  `plan create` (requires `--remote-state-output` pair artifact), `plan inspect`,
+  `apply` / `apply --apply` (requires `--remote-state`; `--credential` required for
+  ready plans, not for blocked), and `result inspect`. Explicit `--credential`
+  selectors (`azure-cli`, `azure-developer-cli`, `client-secret`, `certificate`);
+  env material for client-secret/certificate uses `AZURE_CLIENT_ID` /
+  `AZURE_CLIENT_SECRET` / `AZURE_CLIENT_CERTIFICATE_PATH` (tenant always from
+  config/plan, never `AZURE_TENANT_ID`). Dual plan+remote persistence is
+  fail-closed (not atomic). Offline reviewer guide:
+  `docs/unified-catalog-reviewer-workflow.md`.
+- Strict `load_remote_state_v3_text` / `load_remote_state_v3_file` for local
+  planned remote-state/v3 artifacts.
+- Offline CLI E2E and failure-matrix tests for v3; CI cli-integration smoke for
+  fictional config/v3 validate and v3 help flags.
+
+### Fixed
+
+- Apply/v3 early `failed-before-write` paths (invalid remote / remote identity
+  mismatch) now set `executionTargetContextIdentity` to the planned target so
+  result serialization matches fail-closed semantics.
+- Data Product and Glossary Term description drift reasons now use
+  `canonical_json_scalar` so plan self-validation accepts description replaces.
+
 - Controlled Unified Catalog **apply/v3** (`execute_governance_plan_v3`) with
   fail-closed full-plan preflight (P0–M), dry-run default, bounded write surface
   (Data Product and Glossary Term CREATE/safe REPLACE; Business Domain REPLACE
