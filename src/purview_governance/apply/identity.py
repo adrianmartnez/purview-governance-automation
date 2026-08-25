@@ -8,10 +8,12 @@ from purview_governance.plan.identity import compute_domain_identity, is_sha256_
 
 RESULT_API_VERSION = "purview-execution-result/v1"
 RESULT_API_VERSION_V2 = "purview-execution-result/v2"
+RESULT_API_VERSION_V3 = "purview-execution-result/v3"
 
 __all__ = [
     "RESULT_API_VERSION",
     "RESULT_API_VERSION_V2",
+    "RESULT_API_VERSION_V3",
     "compute_result_identity",
     "is_sha256_identity",
 ]

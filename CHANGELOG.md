@@ -13,6 +13,25 @@ keep contract `v1` while those artifacts remain compatible.
 
 ### Added
 
+- Controlled Unified Catalog **apply/v3** (`execute_governance_plan_v3`) with
+  fail-closed full-plan preflight (P0–M), dry-run default, bounded write surface
+  (Data Product and Glossary Term CREATE/safe REPLACE; Business Domain REPLACE
+  only), `partial` execution-result/v3 status for pre-write interruption after
+  successful writes, and `TenantBoundAuthorizationProvider` at the APPLY seam.
+- `purview-execution-result/v3` schema, models, loader, and validation
+  (including `partial` contiguous-prefix invariants).
+- `derive_capture_recipe()` for exact fresh-capture replay from planned
+  remote-state/v3 artifacts.
+- Contract-test harness routes for targeted GET and bounded POST/PUT (no
+  successful `POST /businessdomains`).
+- `docs/contract-discovery/pr6-unified-catalog-apply.md` (Fase 0 safety gates).
+
+### Changed
+
+- README capability matrix documents apply/v3 bounded support and blocked-capability
+  semantics (`executionEligibility: blocked` is not a planner error; executor
+  fails closed before any write).
+
 - Data Assets and Data Columns **read-model** capture in `purview-remote-state/v3`
   (PR5): opt-in `include_data_assets`, `include_data_columns`, and governance
   relationship families A–C via separate `readModelCoverage` (sparse positive-only).
@@ -20,10 +39,11 @@ keep contract `v1` while those artifacts remain compatible.
   on `PurviewUnifiedCatalogClient` (read-only GET/POST query).
 - Governance relationship normalization for `dataProductToDataAsset`,
   `glossaryTermToDataAsset`, and `glossaryTermToDataColumn` (Related only).
-- Glossary Terms declarative modeling in contract **v3** (planning-only; no apply):
-  config desired state, opt-in remote capture (Shapes C/D), diff, and plan with
+- Glossary Terms declarative modeling in contract **v3** (planning + controlled apply):
+  config desired state, opt-in remote capture (Shapes C/D), diff, plan with
   domain/parent dependency resolution, scoped hierarchy validation, and
   deterministic operation ordering after Business Domains and Data Products.
+  Apply supports CREATE and safe REPLACE (parent-clear blocked fail-closed).
 - `enumerate_glossary_terms()` on `PurviewUnifiedCatalogClient`.
 - Opt-in remote capture `include_glossary_terms=True` (Shape C); Shape D when
   combined with `include_data_products=True`; default capture remains Shape A.
