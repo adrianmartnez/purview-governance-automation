@@ -38,6 +38,18 @@ multi-resource Scanning surface used by v1.1; contract v3 is Unified Catalog.
 - offline REST contract testing
 - explicit stable-package vs Public Preview API boundary
 
+## Development status - Temporarily paused (2026-10-17)
+
+The current stable release remains **v1.2.0**.
+
+Further development of v1.3 (Governance Drift and Operations) and v2.0 (Enterprise Automation and Extensibility) is temporarily paused pending access to an authorized non-production Microsoft Purview tenant for live API validation.
+
+Epics #4 and #5 remain open and planned, not cancelled.
+
+Existing capabilities are validated through offline API contract tests. No live-tenant validation or production compatibility is claimed for Microsoft Purview Unified Catalog Public Preview.
+
+Development will resume after obtaining suitable tenant access, reviewing current Microsoft API specifications, and validating permission-scoped read-only operations before considering additional writes.
+
 ## Status
 
 ### Implemented
