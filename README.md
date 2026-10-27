@@ -313,6 +313,10 @@ config
 Unified Catalog (v3) — see
 [docs/unified-catalog-reviewer-workflow.md](docs/unified-catalog-reviewer-workflow.md).
 
+Azure Storage security and Purview scan-readiness (offline fictional walkthrough)
+— see
+[docs/azure-storage-purview-readiness.md](docs/azure-storage-purview-readiness.md).
+
 ### Exit codes
 
 | Code | Meaning |
@@ -347,7 +351,9 @@ dependency seam. They do not require Azure credentials and do not expose public
 - **v2** — multi-resource path using `examples/fictional-governance-config-v2.yaml`
   (validate → independent remote capture → plan create/inspect → dry-run →
   explicit apply → result inspect → empty re-plan → no-op apply). Demonstrates
-  convergence after successful apply.
+  convergence after successful apply. For Azure Storage security vs Purview
+  scan-readiness context (Blob vs Files, evidence matrix), see
+  [docs/azure-storage-purview-readiness.md](docs/azure-storage-purview-readiness.md).
 - **v3** — Unified Catalog path (seeded domains + drifted data product + absent
   glossary terms → paired remote/plan → dry-run → apply with PUT + parent/child
   POSTs → convergence). See reviewer guide.
@@ -388,7 +394,7 @@ src/purview_governance/
   cli.py
 examples/
 tests/   # unit, api_contract, cli offline workflows (v1 + v2 + v3)
-docs/    # UC reviewer workflow + contract-discovery notes
+docs/    # UC reviewer workflow, Azure Storage Purview readiness, contract-discovery notes
 .github/workflows/ci.yml
 CHANGELOG.md
 ```
