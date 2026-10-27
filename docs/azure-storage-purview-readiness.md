@@ -50,13 +50,26 @@ As documented on Microsoft Learn at the time of writing:
 | Purview account endpoint (config example) | `https://contoso-fictional.purview.azure.com` |
 | Blob endpoints in repo sample | `https://a.blob.core.windows.net/`, `https://b.blob.core.windows.net/` |
 | Intended scan auth (Purview) | Managed identity (`AzureStorageMsi` in supported automation) |
-| Network posture (declared) | Public network access restricted; trusted Microsoft services exception enabled for scanning path |
+| Anonymous / public blob access (ARM) | `allowBlobPublicAccess = false` |
+| Public network access (declared) | Enabled for **selected networks** (not fully disabled) |
+| Firewall default action (declared) | **Deny** |
+| Private endpoints (declared) | **None** |
+| Trusted Microsoft services exception (declared) | **Enabled** for the chosen Purview scanning path |
+| Integration runtime (declared intent) | **Azure IR** |
+| Managed identity data-plane role (declared intent) | **Storage Blob Data Reader** on the fictional account scope |
 | Encryption at rest (declared) | Microsoft-managed keys (MMK); CMK **not** declared |
 | Data protection (declared) | Soft delete for blobs and containers enabled; versioning enabled |
 | TLS / transfer (declared) | Secure transfer required; minimum TLS **1.2** |
 
 These values exist only as **fictional-config** evidence for the matrix below.
 They are not observations from Azure Resource Manager or the Azure portal.
+
+**Network public access is not anonymous blob access.** Selected-networks /
+firewall rules control *who can reach the account endpoint*;
+`allowBlobPublicAccess` controls whether anonymous (unauthenticated) public
+read of blobs/containers is permitted. Matrix `PASS` rows for Scenario A
+evaluate **declared fictional coherence** only. Live reachability, effective
+RBAC, DNS, and real Purview scans remain unverified — see `LIVE-SCAN-01`.
 
 ### Security and availability topics (Azure Storage)
 
@@ -210,10 +223,10 @@ Microsoft Purview scan succeeded against a real account.
 | Check ID | Resource | Requirement | Evidence | Evidence source | Evidence kind | Result | Justification | Limitations |
 |----------|----------|-------------|----------|-----------------|---------------|--------|---------------|-------------|
 | BLOB-TLS-01 | Fictional account `stgcontosoanalytics` (Blob / account TLS) | Secure transfer required; minimum TLS 1.2 | Scenario A declares both settings | This document, Scenario A | `fictional-config` | `PASS` | Declared fictional posture meets the defined check | Fiction only; not ARM/portal proof |
-| BLOB-PUB-01 | Same fictional Blob account | Anonymous public blob access disabled | Scenario A declares public access restricted | This document, Scenario A | `fictional-config` | `PASS` | Declared fictional posture meets the defined check | Fiction only |
+| BLOB-PUB-01 | Same fictional Blob account | Anonymous/public blob access disabled (`allowBlobPublicAccess = false`) | Scenario A declares `allowBlobPublicAccess = false` | This document, Scenario A | `fictional-config` | `PASS` | Check evaluates the ARM anonymous/public blob access declaration only | Fiction only; selected-networks / firewall rows are **not** evidence for this check — do not infer from network rules |
 | BLOB-CMK-01 | Same fictional Blob account | Customer-managed keys configured | CMK not declared; only MMK declared | This document, Scenario A | `fictional-config` | `UNKNOWN` | Insufficient fictional evidence to claim CMK compliance | Do not infer CMK from MMK default |
-| BLOB-NET-01 | Same fictional Blob account | Firewall / PE path suitable for chosen Purview credential | Declared restricted public access + trusted Microsoft services for MSI path | This document, Scenario A | `fictional-config` | `PASS` | Matches a defined fictional MSI + firewall-style path | Fiction only; DNS/PE not verified live |
-| BLOB-PVW-01 | Fictional Blob scan path (Scenario A) | Declared scan auth matches Learn guidance for firewall without PE (managed identity) | Scenario A declares MSI intent for that networking posture; Learn documents MSI for that case | This document, Scenario A (Learn cited under Requirement) | `fictional-config` | `PASS` | Fictional declaration aligns with the documented Blob connector guidance for that network case | Fiction + Learn citation; not a live scan result |
+| BLOB-NET-01 | Same fictional Blob account | Fictional connectivity declaration is complete for the chosen path: selected networks + default Deny + no private endpoints + trusted Microsoft services exception + Azure IR + MSI intent | Scenario A declares each of those connectivity fields | This document, Scenario A | `fictional-config` | `PASS` | Defined check = internal coherence of the fictional connectivity story only | Not proof of live network path, DNS resolution, or storage reachability — see `LIVE-SCAN-01` |
+| BLOB-PVW-01 | Fictional Blob scan path (Scenario A) | Declared Purview auth/IR align with Learn for firewall enabled and no private endpoints (Azure IR + managed identity) | Scenario A declares Azure IR, MSI / `Storage Blob Data Reader` intent, no PE, trusted Microsoft services; Learn documents MSI for that networking case | This document, Scenario A (Learn cited under Requirement) | `fictional-config` | `PASS` | Defined check = documentary alignment of fictional declarations with Learn guidance | Not a live connection test, not effective RBAC proof, not a completed scan — see `LIVE-SCAN-01` |
 | FILES-SMB-01 | Fictional share `finance-share` (SMB) | SMB 3.x channel encryption in use | Scenario B declares SMB 3.1.1 with channel encryption | This document, Scenario B | `fictional-config` | `PASS` | Declared SMB posture meets the SMB check | Fiction only; not a packet capture |
 | FILES-REST-01 | Same classic account (FileREST) | HTTPS with minimum TLS 1.2 for FileREST | Scenario B uses classic account; FileREST TLS/min TLS called out as account-level FileREST control | This document + Learn Files networking | `fictional-config` | `UNKNOWN` | Scenario emphasizes SMB encryption; FileREST minimum TLS value was not explicitly declared as a numeric setting | Do not treat SMB encryption as proof of FileREST `MinimumTlsVersion` |
 | FILES-NFS-01 | Fictional share `finance-share` (NFS TLS tunnel) | NFS encryption-in-transit via TLS tunnel where NFS is used | Share is SMB-primary; NFS not in scenario | This document, Scenario B | `fictional-config` | `NOT_APPLICABLE` | NFS TLS-tunnel check does not apply to this SMB-primary fictional share | Would apply only if NFS were in scope |
@@ -221,7 +234,7 @@ Microsoft Purview scan succeeded against a real account.
 | FILES-AUTO-01 | This walkthrough / package scope | Must not claim Azure Files plan/apply automation | Scenario B states documentary-only; no Azure Files kind in the v2 sample | This document, Scenario B + `examples/fictional-governance-config-v2.yaml` kinds | `fictional-config` | `PASS` | Defined honesty check on the walkthrough and sample kinds | Not an Azure security control; not pytest output |
 | REPO-CFG-01 | `examples/fictional-governance-config-v2.yaml` | Config validates as `purview-governance-config/v2` without network | `purview-governance config validate` succeeds locally | CLI local schema validation | `local-repo-validation` | `PASS` | Local schema validation only | Not Azure security; not a live Purview scan |
 | REPO-OFF-01 | Offline v2 CLI workflow | Loopback plan/apply assertions hold without Azure credentials | `tests/cli/test_offline_v2_workflow.py` | Pytest + package-private DI seam | `local-repo-validation` | `PASS` | Contract loopback behavior only | Writes hit loopback server only; never a real tenant |
-| LIVE-SCAN-01 | Real Purview scan of Blob or Files | End-to-end scan succeeds in an authorized tenant | No tenant available for this walkthrough | — | `unavailable-no-tenant` | `UNKNOWN` | Cannot verify without authorized non-production tenant | Required for live readiness claims |
+| LIVE-SCAN-01 | Real Azure Blob/Files path + Purview scan | Live storage reachability, effective MSI/RBAC, DNS/private-link behavior if used, and end-to-end Purview scan succeed in an authorized tenant | No tenant / ARM/portal observation available for this walkthrough | — | `unavailable-no-tenant` | `UNKNOWN` | Cannot verify connectivity, effective permissions, or scan outcome without an authorized non-production tenant | Covers the live gaps left explicit by `BLOB-NET-01` / `BLOB-PVW-01` PASS (fiction-only) rows; required for live readiness claims |
 | LEARN-REF-01 | Microsoft Learn (Blob + Files scan articles) | Official connector/auth/network requirements remain the external source of truth | URLs listed in References | Microsoft Learn | `microsoft-learn` | `UNKNOWN` | Citation only — Learn text is not scored as fictional compliance | Re-read Learn before live work; docs may change |
 
 ## Offline reviewer workflow
